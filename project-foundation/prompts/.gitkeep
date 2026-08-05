@@ -1,0 +1,11 @@
+# Prompts Directory
+
+This directory contains prompt templates for AI agents.
+
+Prompts are Markdown files with Jinja2 template syntax.
+
+Example prompt files:
+- `agent-name.md` - Agent-specific prompts
+- `system-prompt.md` - System-level prompts
+
+See `app/prompts/prompt_loader.py` for usage.

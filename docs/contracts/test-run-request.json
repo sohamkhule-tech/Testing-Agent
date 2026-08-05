@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.agentic-testing-platform.io/contracts/v1/test-run-request.json",
+  "title": "Test Run Request",
+  "description": "Canonical entry contract for an AI-driven test execution run. Produced by the Trigger Agent and consumed by the AI Crawler Agent. Every test execution in the platform begins with this object.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "requestId",
+    "createdAt",
+    "targetApplication"
+  ],
+  "properties": {
+    "runId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Globally unique identifier for this test execution run. Assigned at creation time and used as the correlation ID across all subsequent pipeline stages."
+    },
+    "requestId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Correlation identifier for the HTTP request that initiated this run. Enables tracing from the API gateway through the entire pipeline."
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when this run request was created. Used for ordering, auditing, and retention policies."
+    },
+    "requestedBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Identifier of the human or system that requested this run. May be a username, email, or service account name."
+    },
+    "targetApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseUrl"
+      ],
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Identifier of a previously registered application. Must be provided when the application has already been registered. Mutually exclusive with applicationName."
+        },
+        "applicationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name for an unregistered application. Used during initial registration when applicationId has not yet been assigned. Mutually exclusive with applicationId."
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The base URL of the target web application under test. Must be a valid absolute URI with an HTTP or HTTPS scheme."
+        },
+        "environment": {
+          "type": "string",
+          "enum": [
+            "development",
+            "staging",
+            "production"
+          ],
+          "default": "staging",
+          "description": "The deployment environment of the target application. Affects crawl budget, timeout defaults, and reporting severity."
+        }
+      }
+    },
+    "executionMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "crawlStrategy": {
+          "type": "string",
+          "enum": [
+            "full",
+            "incremental",
+            "skip"
+          ],
+          "default": "full",
+          "description": "Determines how the crawler approaches the target application. Full performs a complete crawl. Incremental re-crawls only pages flagged as changed since the last crawl. Skip bypasses crawling entirely and uses the most recent available inventory."
+        },
+        "testLevel": {
+          "type": "string",
+          "enum": [
+            "smoke",
+            "regression"
+          ],
+          "default": "regression",
+          "description": "The depth of test generation. Smoke covers only critical paths and core functionality. Regression generates comprehensive coverage across happy path, validation, and error-path scenarios."
+        }
+      },
+      "description": "Controls how the pipeline executes — full discovery vs. reuse, and the depth of generated test coverage."
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Indicates whether the target application requires authentication before it can be crawled."
+        },
+        "loginStrategy": {
+          "type": "string",
+          "enum": [
+            "form",
+            "api",
+            "basic",
+            "oauth",
+            "sso",
+            "none"
+          ],
+          "description": "The authentication mechanism used by the target application. Form-based login with credentials. API token authentication. HTTP Basic Auth. OAuth 2.0 flow. Single sign-on via SAML or OIDC."
+        },
+        "credentialsRef": {
+          "$ref": "#/$defs/uuid",
+          "description": "Reference to the stored credentials in the credential vault. The credentials themselves are never included in the contract. Resolved at runtime by the execution service."
+        },
+        "loginUrl": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The URL of the login page or authentication endpoint. Required when the login strategy is form-based or OAuth."
+        }
+      },
+      "description": "Authentication configuration for accessing the target application. When required is false, all other fields are ignored."
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includePages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "maxItems": 100,
+          "description": "URL patterns or page name filters that restrict crawling to matching pages. Patterns are matched as case-insensitive substrings against discovered URLs. An empty array means no filtering."
+        },
+        "excludePages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0,
+          "maxItems": 100,
+          "description": "URL patterns or page name filters that exclude matching pages from crawling. Exclusion takes precedence over inclusion. An empty array means no pages are excluded."
+        },
+        "includeApis": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, the Runtime API Discovery module analyses network traffic to discover API endpoints and their observed behaviour."
+        },
+        "maxCrawlDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5,
+          "description": "Maximum link-following depth from the starting page. Depth 1 crawls only the starting page. Higher values follow navigation links deeper into the application."
+        },
+        "maxPages": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 50,
+          "description": "Hard upper limit on the number of pages crawled. Prevents unbounded crawl time on large applications."
+        }
+      },
+      "description": "Controls which parts of the target application are crawled and analysed. All scope fields are optional — an empty scope object means crawl everything discoverable."
+    },
+    "ai": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "default": "deepseek-r1-distill-qwen-8b",
+          "description": "The language model used for all AI reasoning and generation tasks in this run. Must correspond to a model available through the configured LLM provider."
+        },
+        "temperature": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 0.2,
+          "description": "LLM sampling temperature for this run. Lower values produce more deterministic output. The platform's default of 0.2 is appropriate for correctness-critical code generation."
+        },
+        "reasoningLevel": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "medium",
+          "description": "Controls the depth of AI reasoning during test design. Low favours speed and generates straightforward scenarios. High performs multi-step reasoning for complex edge cases."
+        }
+      },
+      "description": "AI model and behaviour configuration for the run. These values override the platform defaults for this run only."
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Maximum execution time for the entire run, in seconds. If the run exceeds this limit, it is terminated and partial results are reported."
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 1,
+          "description": "Number of times a failed test case is re-executed before being marked as failed. Does not apply to AI agent retries, which are governed by the internal retry policy."
+        },
+        "parallelism": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 1,
+          "description": "Maximum number of Playwright test workers to run in parallel. MVP supports only sequential execution (parallelism=1). Higher values take effect in Phase 2."
+        },
+        "browser": {
+          "type": "string",
+          "enum": [
+            "chromium",
+            "firefox",
+            "webkit"
+          ],
+          "default": "chromium",
+          "description": "The Playwright browser engine used for crawling and test execution. MVP targets Chromium only. Firefox and WebKit support is introduced in Phase 2."
+        },
+        "headless": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, the browser runs in headless mode with no visible window. Set to false during debugging to observe browser behaviour."
+        }
+      },
+      "description": "Execution runtime configuration for Playwright test runner and the overall run lifecycle."
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Optional override for the workspace directory path. If not provided, the platform assigns a workspace based on the run ID."
+        },
+        "artifactRetention": {
+          "type": "string",
+          "enum": [
+            "run",
+            "day",
+            "week",
+            "month"
+          ],
+          "default": "run",
+          "description": "How long generated artifacts (screenshots, traces, reports, scripts) are retained after the run completes. Run-level retention means artifacts are cleaned up when the run is deleted."
+        }
+      },
+      "description": "Output and artifact configuration for the run. Controls where generated files are written and how long they are retained."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "description": "Arbitrary tags for categorising runs. Used for filtering in the UI and API. Examples: 'sprint-42', 'release-candidate', 'regression-block'."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Free-text notes describing the purpose or context of this run. Intended for human consumption."
+        }
+      },
+      "description": "User-defined metadata for organising, filtering, and documenting runs."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A universally unique identifier in standard 8-4-4-4-12 hexadecimal format."
+    }
+  }
+}

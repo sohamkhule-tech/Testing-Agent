@@ -1,0 +1,2380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.agentic-testing-platform.io/contracts/v1/playwright-project.json",
+  "title": "Playwright Project Blueprint",
+  "description": "Canonical blueprint describing an entire generated Playwright test project. Produced by the Code Generation Agent and consumed by the Playwright Execution Agent. This contract defines the complete project structure — folder layout, configuration, test files, page objects, fixtures, utilities, reporters, browser matrix, dependencies, environment, and artifacts. It contains NO source code, only project metadata and structure descriptions.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "requestId",
+    "projectMetadata",
+    "configuration",
+    "projectStructure",
+    "testFiles",
+    "generationMetadata"
+  ],
+  "properties": {
+    "runId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Globally unique identifier for the test execution run. Must match the runId across all pipeline contracts."
+    },
+    "requestId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Correlation identifier from the originating HTTP request. Must match the requestId across all pipeline contracts."
+    },
+    "projectMetadata": {
+      "$ref": "#/$defs/projectMetadata",
+      "description": "Top-level metadata describing the generated Playwright project — its identity, framework versions, repository name, and output directory."
+    },
+    "projectStructure": {
+      "$ref": "#/$defs/projectStructure",
+      "description": "Describes the complete directory and file structure of the generated project. Every file that should exist is declared here with its path, category, and purpose."
+    },
+    "configuration": {
+      "$ref": "#/$defs/playwrightConfig",
+      "description": "The Playwright configuration for the generated project — timeouts, workers, parallelism, retries, browser profiles, viewport, locale, and output directories."
+    },
+    "browserMatrix": {
+      "$ref": "#/$defs/browserMatrix",
+      "description": "Browser and device matrix defining which browsers, viewports, and devices the project is configured to test against."
+    },
+    "testFiles": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/testFileSpec"
+      },
+      "minItems": 0,
+      "description": "Specifications for every generated test file. Each test file declares which source test cases it implements, which page objects and fixtures it imports, and which execution group it belongs to."
+    },
+    "pageObjects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pageObjectSpec"
+      },
+      "minItems": 0,
+      "description": "Specifications for generated page object models. Each page object encapsulates the interaction model for one or more application pages."
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fixtureSpec"
+      },
+      "minItems": 0,
+      "description": "Specifications for generated test fixtures — authentication fixtures, data fixtures, API fixtures, browser fixtures, environment fixtures, and cleanup fixtures."
+    },
+    "utilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/utilitySpec"
+      },
+      "minItems": 0,
+      "description": "Specifications for generated utility and helper modules — date helpers, random data generators, API helpers, authentication helpers, assertion helpers, and database helpers."
+    },
+    "reporters": {
+      "$ref": "#/$defs/reporterConfig",
+      "description": "Reporter configuration for the generated project — which reporters are enabled and their output settings."
+    },
+    "executionGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/executionGroup"
+      },
+      "minItems": 0,
+      "description": "Execution groups defining which test files, browser profiles, and configuration overrides apply to different test runs — smoke, regression, nightly, critical, security, accessibility, performance."
+    },
+    "dependencies": {
+      "$ref": "#/$defs/dependencySet",
+      "description": "NPM dependencies required by the generated project — Playwright version, plugins, utilities, and external libraries."
+    },
+    "environment": {
+      "$ref": "#/$defs/environmentConfig",
+      "description": "Environment configuration for the generated project — environment variables, secrets references, configuration files, and runtime requirements."
+    },
+    "artifacts": {
+      "$ref": "#/$defs/artifactConfig",
+      "description": "Artifact output configuration — screenshots, videos, trace files, downloads, logs, and coverage reports."
+    },
+    "generationMetadata": {
+      "$ref": "#/$defs/generationMetadata",
+      "description": "Metadata about the code generation process — when it ran, which source contracts were consumed, the generator version, overall confidence, and warnings."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A universally unique identifier in standard 8-4-4-4-12 hexadecimal format."
+    },
+    "projectMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "projectName",
+        "outputDirectory"
+      ],
+      "properties": {
+        "projectId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this generated project instance."
+        },
+        "projectName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$",
+          "description": "The name of the generated Playwright project. Used as the package name and root directory name."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of the generated project and its purpose."
+        },
+        "frameworkVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "default": "1.52.0",
+          "description": "The Playwright version targeted for this project."
+        },
+        "typescriptVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "default": "5.7.0",
+          "description": "The TypeScript version targeted for this project."
+        },
+        "nodeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "default": "20 LTS",
+          "description": "The Node.js version targeted for this project."
+        },
+        "generatorVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Version identifier of the Code Generation Agent that produced this blueprint."
+        },
+        "outputDirectory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "The absolute or relative path to the directory where the generated project should be written."
+        },
+        "repositoryName": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The repository name or identifier this project belongs to, if applicable."
+        },
+        "language": {
+          "type": "string",
+          "enum": [
+            "typescript",
+            "javascript"
+          ],
+          "default": "typescript",
+          "description": "The programming language used for the generated project."
+        },
+        "packageManager": {
+          "type": "string",
+          "enum": [
+            "npm",
+            "yarn",
+            "pnpm",
+            "bun"
+          ],
+          "default": "npm",
+          "description": "The package manager used for dependency management."
+        },
+        "moduleFormat": {
+          "type": "string",
+          "enum": [
+            "esm",
+            "commonjs"
+          ],
+          "default": "esm",
+          "description": "The module format used in the generated project."
+        },
+        "totalGeneratedFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of files to be generated in this project."
+        },
+        "totalTestFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of test files to be generated."
+        },
+        "totalPageObjects": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of page object files to be generated."
+        },
+        "estimatedLinesOfCode": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated total lines of code across all generated files."
+        }
+      },
+      "description": "Top-level metadata describing the generated Playwright project — its identity, framework versions, repository name, output directory, and aggregate file counts."
+    },
+    "projectStructure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "directories"
+      ],
+      "properties": {
+        "directories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/directorySpec"
+          },
+          "minItems": 1,
+          "description": "All directories to be created in the generated project."
+        },
+        "rootFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generatedFile"
+          },
+          "description": "Root-level files to be generated (package.json, tsconfig.json, playwright.config.ts, .env, .gitignore, README.md)."
+        },
+        "entryPoints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "configFile": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Relative path to the Playwright configuration file."
+            },
+            "mainTestFile": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Relative path to the main test entry point."
+            },
+            "globalSetup": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Relative path to the global setup file."
+            },
+            "globalTeardown": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Relative path to the global teardown file."
+            }
+          },
+          "description": "Entry point files referenced by configuration."
+        }
+      },
+      "description": "Describes the complete directory and file structure of the generated project. Every file that should exist is declared with its path, category, generation source, size estimate, and dependencies."
+    },
+    "directorySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relativePath"
+      ],
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[a-zA-Z0-9_/.-]+$",
+          "description": "Relative path of the directory from the project root (e.g. 'tests', 'tests/auth', 'fixtures', 'pageObjects', 'utils/helpers')."
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Description of what this directory contains."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generatedFile"
+          },
+          "description": "Files to be generated within this directory."
+        },
+        "subdirectories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/directorySpec"
+          },
+          "description": "Nested subdirectories within this directory."
+        }
+      },
+      "description": "A single directory within the generated project structure, with its files and nested subdirectories."
+    },
+    "generatedFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fileName",
+        "category"
+      ],
+      "properties": {
+        "fileId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this generated file."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[a-zA-Z0-9_.-]+$",
+          "description": "The file name including extension (e.g. 'auth.setup.ts', 'login.page.ts', 'users.spec.ts', 'test-data.ts')."
+        },
+        "category": {
+          "$ref": "#/$defs/fileCategory",
+          "description": "The category of the generated file."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what this file contains and its purpose in the project."
+        },
+        "sourceTestCaseIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Test case IDs from test-case.json that this file implements. Only populated for test spec files."
+        },
+        "sourceSuiteId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The test suite ID from test-case.json that this file belongs to."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fileId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The fileId of a dependent file."
+              },
+              "importType": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "named",
+                  "namespace",
+                  "type"
+                ],
+                "description": "The type of import required."
+              },
+              "symbols": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "description": "The specific symbols, classes, or functions to import from the dependent file."
+              }
+            },
+            "required": [
+              "fileId"
+            ],
+            "description": "A dependency on another generated file."
+          },
+          "description": "Dependencies this file has on other generated files — imports of page objects, fixtures, utilities, and shared components."
+        },
+        "estimatedLineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated number of lines in the generated file."
+        },
+        "generationPriority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 50,
+          "description": "Priority for file generation ordering. Higher values are generated first."
+        },
+        "contentTemplate": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Reference to a content template or pattern used to generate this file (e.g. 'standard-test', 'page-object', 'fixture-auth', 'config-playwright')."
+        },
+        "checksum": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Expected checksum (SHA-256) of the generated file content for verification purposes."
+        }
+      },
+      "description": "A single file to be generated in the project. Declares the file name, category, source test cases, dependencies on other generated files, size estimate, and generation priority."
+    },
+    "fileCategory": {
+      "type": "string",
+      "enum": [
+        "testSpec",
+        "testSuite",
+        "pageObject",
+        "componentObject",
+        "fixture",
+        "utility",
+        "helper",
+        "config",
+        "types",
+        "constants",
+        "data",
+        "mock",
+        "setup",
+        "teardown",
+        "reporter",
+        "plugin",
+        "env",
+        "documentation",
+        "build",
+        "root"
+      ],
+      "description": "Category classification of a generated file."
+    },
+    "playwrightConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseURL",
+        "timeout",
+        "workers",
+        "retries"
+      ],
+      "properties": {
+        "baseURL": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The base URL for all tests. Matches the baseUrl from test-run-request.json."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 600000,
+          "default": 30000,
+          "description": "Global test timeout in milliseconds."
+        },
+        "expectTimeout": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000,
+          "default": 5000,
+          "description": "Timeout for expect assertions in milliseconds."
+        },
+        "workers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 4,
+          "description": "Maximum number of concurrent workers for parallel test execution."
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "default": 1,
+          "description": "Number of retry attempts for failed tests."
+        },
+        "maxFailures": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Maximum number of test failures allowed before stopping the run. 0 means unlimited."
+        },
+        "fullyParallel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether all tests should run in parallel by default."
+        },
+        "forbidOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to forbid test.only in CI environments."
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/browserProject"
+          },
+          "description": "Browser projects configured for this test run."
+        },
+        "webServer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Shell command to start the web server."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Port the web server runs on."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2048,
+              "description": "URL to wait for before starting tests."
+            },
+            "reuseExistingServer": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether to reuse an already running server."
+            },
+            "timeout": {
+              "type": "integer",
+              "minimum": 1000,
+              "description": "Timeout for waiting for the web server in milliseconds."
+            }
+          },
+          "description": "Web server configuration for the test environment."
+        },
+        "globalSetup": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Relative path to the global setup module."
+        },
+        "globalTeardown": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Relative path to the global teardown module."
+        },
+        "globalTimeout": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Timeout for the entire test run in milliseconds."
+        },
+        "reportSlowTests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 5,
+              "description": "Maximum number of slow tests to report."
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 15000,
+              "description": "Threshold in milliseconds for considering a test slow."
+            }
+          },
+          "description": "Configuration for reporting slow tests."
+        },
+        "ignoreSnapshots": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to ignore screenshot snapshots."
+        },
+        "snapshotPathTemplate": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Template for snapshot file paths."
+        },
+        "testDir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Directory containing test files, relative to project root."
+        },
+        "testMatch": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Glob patterns for matching test files."
+        },
+        "testIgnore": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Glob patterns for ignoring test files."
+        },
+        "outputDir": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Directory for test output artifacts."
+        },
+        "preserveOutput": {
+          "type": "string",
+          "enum": [
+            "always",
+            "never",
+            "failures-only"
+          ],
+          "default": "never",
+          "description": "When to preserve test output."
+        },
+        "updateSnapshots": {
+          "type": "string",
+          "enum": [
+            "all",
+            "none",
+            "missing"
+          ],
+          "default": "missing",
+          "description": "Snapshot update strategy."
+        },
+        "updateSourceMethod": {
+          "type": "string",
+          "enum": [
+            "overwrite",
+            "patch",
+            "none"
+          ],
+          "default": "overwrite",
+          "description": "How to update generated test source code."
+        }
+      },
+      "description": "Complete Playwright configuration for the generated project. Maps to playwright.config.ts settings including timeouts, workers, retries, browser projects, web server, global setup, and snapshot options."
+    },
+    "browserProject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "browser"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Human-readable name for this browser project (e.g. 'chromium', 'firefox', 'webkit', 'Mobile Safari', 'Chrome Desktop')."
+        },
+        "browser": {
+          "type": "string",
+          "enum": [
+            "chromium",
+            "firefox",
+            "webkit"
+          ],
+          "description": "The Playwright browser engine."
+        },
+        "use": {
+          "$ref": "#/$defs/browserContextOptions",
+          "description": "Browser context options for this project."
+        },
+        "testDir": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Project-specific test directory override."
+        },
+        "testMatch": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Project-specific test file patterns."
+        },
+        "testIgnore": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Project-specific test ignore patterns."
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Project-specific retry count override."
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1000,
+          "description": "Project-specific timeout override in milliseconds."
+        },
+        "fullyParallel": {
+          "type": "boolean",
+          "description": "Whether tests in this project run in parallel."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": "Names of other projects this project depends on."
+        },
+        "snapshotPathTemplate": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Project-specific snapshot path template."
+        }
+      },
+      "description": "A single Playwright browser project configuration within the test matrix."
+    },
+    "browserContextOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "headless": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to run the browser in headless mode."
+        },
+        "viewport": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 320,
+              "maximum": 7680,
+              "default": 1280,
+              "description": "Viewport width in pixels."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 240,
+              "maximum": 4320,
+              "default": 720,
+              "description": "Viewport height in pixels."
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "description": "Viewport dimensions for the browser context."
+        },
+        "deviceScaleFactor": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0,
+          "description": "Device scale factor for retina/high-DPI displays."
+        },
+        "isMobile": {
+          "type": "boolean",
+          "description": "Whether to emulate a mobile device."
+        },
+        "hasTouch": {
+          "type": "boolean",
+          "description": "Whether the browser context has touch events enabled."
+        },
+        "defaultBrowserType": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The default browser type for this context."
+        },
+        "locale": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "maxLength": 10,
+          "description": "Locale for the browser context (e.g. 'en-US', 'fr-FR', 'de-DE')."
+        },
+        "timezoneId": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Timezone for the browser context (e.g. 'America/New_York', 'Europe/London')."
+        },
+        "geolocation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "latitude": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90,
+              "description": "Geolocation latitude."
+            },
+            "longitude": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180,
+              "description": "Geolocation longitude."
+            }
+          },
+          "description": "Geolocation coordinates for the browser context."
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": "Browser permissions to grant (e.g. 'geolocation', 'notifications', 'camera', 'microphone')."
+        },
+        "colorScheme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark",
+            "no-preference"
+          ],
+          "description": "Preferred color scheme for the browser context."
+        },
+        "reducedMotion": {
+          "type": "string",
+          "enum": [
+            "reduce",
+            "no-preference"
+          ],
+          "description": "Reduced motion setting for accessibility testing."
+        },
+        "forcedColors": {
+          "type": "string",
+          "enum": [
+            "active",
+            "none"
+          ],
+          "description": "Forced colors mode for accessibility testing."
+        },
+        "storageState": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Path to a storage state file for authenticated sessions."
+        },
+        "extraHTTPHeaders": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxProperties": 20,
+          "description": "Extra HTTP headers to include in all requests."
+        },
+        "ignoreHTTPSErrors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to ignore HTTPS certificate errors."
+        },
+        "bypassCSP": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to bypass Content Security Policy."
+        },
+        "userAgent": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Custom user agent string."
+        },
+        "offline": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to emulate offline mode."
+        },
+        "javaScriptEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether JavaScript is enabled."
+        }
+      },
+      "description": "Browser context options configuring the browser environment for a project — viewport, locale, timezone, geolocation, permissions, color scheme, storage state, and network settings."
+    },
+    "browserMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deviceSpec"
+          },
+          "description": "Device emulation configurations included in the project."
+        },
+        "browsers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "chromium": {
+              "$ref": "#/$defs/browserProfile",
+              "description": "Chromium browser profile."
+            },
+            "firefox": {
+              "$ref": "#/$defs/browserProfile",
+              "description": "Firefox browser profile."
+            },
+            "webkit": {
+              "$ref": "#/$defs/browserProfile",
+              "description": "WebKit browser profile."
+            }
+          },
+          "description": "Desktop browser profiles included in the project."
+        },
+        "mobileDevices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "Device name (e.g. 'iPhone 15', 'Pixel 9', 'iPad Pro', 'Samsung Galaxy S24')."
+              },
+              "devicePreset": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "Playwright device preset name if applicable."
+              },
+              "viewport": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "integer",
+                    "minimum": 320,
+                    "maximum": 7680,
+                    "description": "Viewport width."
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 240,
+                    "maximum": 4320,
+                    "description": "Viewport height."
+                  }
+                },
+                "description": "Mobile device viewport dimensions."
+              },
+              "isMobile": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether this is a mobile device."
+              },
+              "hasTouch": {
+                "type": "boolean",
+                "default": true,
+                "description": "Whether the device has touch support."
+              },
+              "deviceScaleFactor": {
+                "type": "number",
+                "minimum": 1.0,
+                "maximum": 5.0,
+                "description": "Device pixel ratio."
+              },
+              "userAgent": {
+                "type": "string",
+                "maxLength": 512,
+                "description": "User agent string for the device."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "description": "A mobile device emulation configuration."
+          },
+          "description": "Mobile device emulations included in the browser matrix."
+        },
+        "tabletDevices": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "Tablet device name (e.g. 'iPad Air', 'Galaxy Tab S9')."
+              },
+              "devicePreset": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "Playwright device preset name."
+              },
+              "viewport": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "width": {
+                    "type": "integer",
+                    "minimum": 600,
+                    "maximum": 7680,
+                    "description": "Viewport width."
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 400,
+                    "maximum": 4320,
+                    "description": "Viewport height."
+                  }
+                },
+                "description": "Tablet viewport dimensions."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "description": "A tablet device emulation configuration."
+          },
+          "description": "Tablet device emulations included in the browser matrix."
+        },
+        "totalProjects": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of browser/device projects in the matrix."
+        }
+      },
+      "description": "Complete browser and device matrix defining what browsers, viewports, and devices the project tests against. Each entry defines the browser engine, device preset, viewport, and context options."
+    },
+    "browserProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this browser profile is enabled in the project."
+        },
+        "channel": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Browser channel (e.g. 'chrome', 'msedge', 'chrome-beta', 'chrome-dev')."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "description": "Command-line arguments passed to the browser."
+        },
+        "executablePath": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Path to a custom browser executable."
+        },
+        "downloadsPath": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Directory for downloaded files."
+        },
+        "tracesDir": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Directory for trace output."
+        }
+      },
+      "description": "Configuration for a single browser engine profile — channel, arguments, executable path, and output directories."
+    },
+    "deviceSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Device name from Playwright device presets (e.g. 'iPhone 15 Pro', 'Pixel 9', 'iPad Pro 11')."
+        },
+        "devicePreset": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The exact Playwright device preset identifier."
+        },
+        "browser": {
+          "type": "string",
+          "enum": [
+            "chromium",
+            "webkit"
+          ],
+          "description": "The browser engine used for this device."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this device is enabled in the project."
+        }
+      },
+      "description": "A device preset from Playwright's device registry to include in the browser matrix."
+    },
+    "testFileSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fileId",
+        "fileName",
+        "filePath",
+        "fileCategory",
+        "sourceTestCaseIds"
+      ],
+      "properties": {
+        "fileId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this test file."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The test file name (e.g. 'login.spec.ts', 'user-management.spec.ts', 'checkout.spec.ts')."
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Relative path to the test file from the project root."
+        },
+        "fileCategory": {
+          "type": "string",
+          "enum": [
+            "testSpec",
+            "testSuite"
+          ],
+          "description": "Whether this is a standalone test spec or a suite aggregating multiple specs."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what this test file covers."
+        },
+        "suiteName": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The test suite name from test-case.json that this file implements."
+        },
+        "sourceSuiteId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The test suite ID from test-case.json that this file maps to."
+        },
+        "sourceTestCaseIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "minItems": 1,
+          "description": "Test case IDs from test-case.json that this file implements."
+        },
+        "estimatedTestCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated number of individual tests (test blocks) in this file."
+        },
+        "executionGroup": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The execution group this test file belongs to (e.g. 'smoke', 'regression', 'nightly')."
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sourcePath": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "The relative import path."
+              },
+              "symbols": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "description": "Symbols to import from the source module."
+              },
+              "importType": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "named",
+                  "type",
+                  "namespace"
+                ],
+                "description": "The type of import statement."
+              },
+              "purpose": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "Description of why this import is needed."
+              }
+            },
+            "required": [
+              "sourcePath",
+              "symbols"
+            ],
+            "description": "A single import declaration for this test file."
+          },
+          "description": "Import declarations required by this test file — page objects, fixtures, utilities, types, and data modules."
+        },
+        "fixturesUsed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Fixture IDs from the fixtures section that this test file uses."
+        },
+        "pageObjectsUsed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Page object IDs from the pageObjects section that this test file uses."
+        },
+        "utilitiesUsed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Utility IDs from the utilities section that this test file uses."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20,
+          "description": "Tags applied to all tests in this file."
+        },
+        "estimatedLineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated lines of code for this test file."
+        }
+      },
+      "description": "Specification for a single generated test file. Declares which source test cases from test-case.json it implements, which page objects and fixtures it imports, which execution group it belongs to, and its estimated size."
+    },
+    "pageObjectSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageObjectId",
+        "name",
+        "fileName",
+        "filePath"
+      ],
+      "properties": {
+        "pageObjectId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this page object."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "The class or export name of the page object (e.g. 'LoginPage', 'UserManagementPage', 'CheckoutPage')."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The file name for this page object (e.g. 'login.page.ts', 'user-management.page.ts')."
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Relative path to the page object file from the project root."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what application pages this page object represents."
+        },
+        "pagesRepresented": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "minItems": 1,
+          "description": "Page IDs from dom-inventory.json / application-inventory.json that this page object encapsulates."
+        },
+        "sourceModuleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The moduleId from application-inventory.json that this page object primarily serves."
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "methodName",
+              "businessAction"
+            ],
+            "properties": {
+              "methodName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "The generated method name (e.g. 'login', 'createUser', 'searchOrders', 'submitCheckout')."
+              },
+              "businessAction": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The business action type from test-case.json that this method implements."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of what this method does."
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64,
+                      "description": "Parameter name."
+                    },
+                    "type": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "description": "Parameter type (e.g. 'string', 'number', 'boolean', 'Credentials', 'UserData')."
+                    },
+                    "optional": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Whether the parameter is optional."
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "description": "Description of the parameter."
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "description": "A method parameter."
+                },
+                "description": "Parameters accepted by this method."
+              },
+              "returnType": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "The return type of this method (e.g. 'Promise<void>', 'Promise<User>', 'Promise<boolean>')."
+              },
+              "sourceStepNumbers": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "description": "Step numbers from the source test cases that this method implements."
+              },
+              "selectorsRequired": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "logicalName": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "description": "Logical name for the selector (e.g. 'emailInput', 'submitButton', 'errorMessage')."
+                    },
+                    "selectorType": {
+                      "type": "string",
+                      "enum": [
+                        "css",
+                        "xpath",
+                        "testId",
+                        "text",
+                        "role",
+                        "label",
+                        "placeholder",
+                        "altText",
+                        "nth",
+                        "chained"
+                      ],
+                      "description": "The preferred selector strategy for this element."
+                    },
+                    "fallbackStrategy": {
+                      "type": "string",
+                      "enum": [
+                        "css",
+                        "xpath",
+                        "testId",
+                        "text",
+                        "role",
+                        "label",
+                        "placeholder",
+                        "altText",
+                        "nth",
+                        "chained",
+                        "none"
+                      ],
+                      "description": "The fallback selector strategy if the primary fails."
+                    },
+                    "frame": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "description": "Frame selector if the element is inside an iframe."
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "description": "Description of what element this selector targets."
+                    }
+                  },
+                  "required": [
+                    "logicalName",
+                    "selectorType"
+                  ],
+                  "description": "A selector reference used by this method."
+                },
+                "description": "Selectors required by this method. References elements from dom-inventory.json by their selector strategies."
+              },
+              "dependsOnMethods": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "description": "Other page object method names this method depends on."
+              },
+              "waits": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "navigation",
+                        "selector",
+                        "timeout",
+                        "apiResponse",
+                        "networkIdle",
+                        "animation"
+                      ],
+                      "description": "The type of wait required."
+                    },
+                    "target": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "description": "The wait target (selector, URL pattern, or condition)."
+                    },
+                    "timeout": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Maximum wait time in milliseconds."
+                    }
+                  },
+                  "description": "A wait condition required by this method."
+                },
+                "description": "Wait conditions required by this method before proceeding."
+              },
+              "assertions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "description": "The assertion type."
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "description": "What is being asserted."
+                    }
+                  },
+                  "description": "An assertion performed by this method."
+                },
+                "description": "Assertions performed within this method."
+              }
+            },
+            "description": "A single generated method on the page object."
+          },
+          "description": "Generated methods on this page object. Each method maps to business actions and implements selectors, waits, and assertions."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "File IDs of other generated files that this page object depends on (other page objects, utilities, types)."
+        },
+        "fixturesRequired": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Fixture IDs required by this page object."
+        },
+        "sharedComponentsUsed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "componentName": {
+                "type": "string",
+                "maxLength": 128,
+                "description": "The shared component name from application-inventory.json."
+              },
+              "componentId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The componentId from application-inventory.json."
+              }
+            },
+            "description": "A shared component used by this page object."
+          },
+          "description": "Shared UI components (from application-inventory.json) that this page object interacts with."
+        },
+        "estimatedLineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated lines of code for this page object file."
+        }
+      },
+      "description": "Specification for a single generated page object model. Declares the page object's methods, selectors, waits, assertions, dependencies, and the application pages it represents."
+    },
+    "fixtureSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fixtureId",
+        "name",
+        "type",
+        "fileName",
+        "filePath"
+      ],
+      "properties": {
+        "fixtureId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this fixture."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "The exported name of the fixture (e.g. 'authFixture', 'dataFixture', 'apiFixture')."
+        },
+        "type": {
+          "$ref": "#/$defs/fixtureType",
+          "description": "The type of fixture."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The file name for this fixture (e.g. 'auth.fixture.ts', 'data.fixture.ts')."
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Relative path to the fixture file from the project root."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what this fixture provides."
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "test",
+            "worker",
+            "global"
+          ],
+          "default": "test",
+          "description": "The lifecycle scope of this fixture. Test-scoped fixtures are created per test. Worker-scoped fixtures are created per worker. Global fixtures are created once for the entire run."
+        },
+        "automatic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this fixture is automatically applied without explicit declaration."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Fixture IDs that this fixture depends on."
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxProperties": 20,
+          "description": "Configuration options for the fixture."
+        },
+        "estimatedLineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated lines of code for this fixture file."
+        }
+      },
+      "description": "Specification for a single generated test fixture. Fixtures provide reusable test context — authenticated browser contexts, test data, API clients, and environment configuration."
+    },
+    "fixtureType": {
+      "type": "string",
+      "enum": [
+        "authentication",
+        "authorization",
+        "data",
+        "api",
+        "browser",
+        "environment",
+        "cleanup",
+        "network",
+        "accessibility",
+        "performance",
+        "storage",
+        "custom"
+      ],
+      "description": "Classification of a fixture's purpose."
+    },
+    "utilitySpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "utilityId",
+        "name",
+        "type",
+        "fileName",
+        "filePath"
+      ],
+      "properties": {
+        "utilityId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this utility module."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "The exported name of the utility module (e.g. 'dateHelpers', 'randomData', 'apiHelpers')."
+        },
+        "type": {
+          "$ref": "#/$defs/utilityType",
+          "description": "The type of utility module."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The file name for this utility (e.g. 'date-helpers.ts', 'random-data.ts', 'api-helpers.ts')."
+        },
+        "filePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "description": "Relative path to the utility file from the project root."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what this utility module provides."
+        },
+        "functions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "The function name."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "Description of what the function does."
+              },
+              "signature": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "Type signature of the function (e.g. '(date: Date, format: string) => string')."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "description": "A single function exported by this utility."
+          },
+          "description": "Functions provided by this utility module."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "File IDs of other generated files this utility depends on."
+        },
+        "externalDependencies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "External npm package names this utility depends on."
+        },
+        "estimatedLineCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated lines of code for this utility file."
+        }
+      },
+      "description": "Specification for a single generated utility or helper module. Utilities provide reusable functions for data generation, API interaction, date manipulation, assertions, and other cross-cutting concerns."
+    },
+    "utilityType": {
+      "type": "string",
+      "enum": [
+        "dataGeneration",
+        "dateTime",
+        "apiClient",
+        "authentication",
+        "assertion",
+        "database",
+        "fileSystem",
+        "network",
+        "accessibility",
+        "performance",
+        "logging",
+        "configuration",
+        "transformation",
+        "validation",
+        "custom"
+      ],
+      "description": "Classification of a utility module's purpose."
+    },
+    "reporterConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reporters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "enum": [
+                  "html",
+                  "json",
+                  "junit",
+                  "allure",
+                  "blob",
+                  "line",
+                  "list",
+                  "dot",
+                  "github",
+                  "null",
+                  "custom"
+                ],
+                "description": "The reporter name."
+              },
+              "outputFile": {
+                "type": "string",
+                "maxLength": 512,
+                "description": "Output file path for the reporter."
+              },
+              "outputFolder": {
+                "type": "string",
+                "maxLength": 512,
+                "description": "Output folder for report artifacts."
+              },
+              "config": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 4096
+                },
+                "maxProperties": 20,
+                "description": "Reporter-specific configuration options."
+              },
+              "open": {
+                "type": "boolean",
+                "default": false,
+                "description": "Whether to automatically open the report after the run."
+              }
+            },
+            "description": "A single reporter configuration."
+          },
+          "minItems": 0,
+          "description": "Enabled reporters and their output configuration."
+        }
+      },
+      "description": "Reporter configuration for the generated project. Defines which reporters are enabled and their output settings."
+    },
+    "executionGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "The execution group name (e.g. 'smoke', 'regression', 'nightly', 'critical', 'security', 'accessibility', 'performance')."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what this execution group covers."
+        },
+        "testFiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "minItems": 1,
+          "description": "File IDs of test files included in this execution group."
+        },
+        "browserProjects": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": "Names of browser projects to use for this group."
+        },
+        "configurationOverrides": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "integer",
+              "minimum": 1000,
+              "description": "Group-specific timeout override."
+            },
+            "retries": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Group-specific retry count override."
+            },
+            "workers": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Group-specific worker count override."
+            },
+            "headless": {
+              "type": "boolean",
+              "description": "Group-specific headless mode override."
+            },
+            "fullyParallel": {
+              "type": "boolean",
+              "description": "Group-specific parallel execution override."
+            },
+            "outputDir": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Group-specific output directory override."
+            }
+          },
+          "description": "Configuration overrides specific to this execution group."
+        },
+        "schedule": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Schedule for automated runs of this group (e.g. 'every 15 minutes', 'daily at 2am', 'on PR merge')."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 10,
+          "description": "Tags associated with this execution group."
+        }
+      },
+      "description": "An execution group defining which test files, browser profiles, and configuration overrides apply to a specific type of test run — smoke, regression, nightly, or security."
+    },
+    "dependencySet": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/packageDependency"
+          },
+          "description": "Runtime dependencies for the generated project."
+        },
+        "devDependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/packageDependency"
+          },
+          "description": "Development dependencies for the generated project."
+        },
+        "totalPackages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of npm packages required."
+        }
+      },
+      "description": "Complete set of npm dependencies required by the generated project — both runtime and development packages."
+    },
+    "packageDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "The npm package name (e.g. '@playwright/test', '@faker-js/faker', 'dotenv', 'axe-core')."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "description": "The package version or version range (e.g. '^1.52.0', '~9.6.0', 'latest')."
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Description of why this package is needed."
+        },
+        "isOptional": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this dependency is optional."
+        }
+      },
+      "description": "A single npm package dependency with its version and purpose."
+    },
+    "environmentConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "envFiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fileName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "Environment file name (e.g. '.env', '.env.local', '.env.ci', '.env.staging')."
+              },
+              "variables": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "key"
+                  ],
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[A-Z][A-Z0-9_]*$",
+                      "description": "The environment variable name."
+                    },
+                    "value": {
+                      "type": "string",
+                      "maxLength": 10000,
+                      "description": "The environment variable value. Omitted for sensitive variables stored in secrets."
+                    },
+                    "sensitive": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Whether this variable contains sensitive data and should be sourced from a secrets vault."
+                    },
+                    "secretRef": {
+                      "type": "string",
+                      "maxLength": 256,
+                      "description": "Reference to the secret in the secrets vault if sensitive."
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "description": "Description of what this environment variable is used for."
+                    },
+                    "required": {
+                      "type": "boolean",
+                      "default": false,
+                      "description": "Whether this environment variable is required for the project to run."
+                    }
+                  },
+                  "description": "A single environment variable."
+                },
+                "minItems": 0,
+                "description": "Environment variables declared in this file."
+              }
+            },
+            "required": [
+              "fileName"
+            ],
+            "description": "An environment file with its variables."
+          },
+          "description": "Environment files to be generated with their variables."
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "provider": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "The secrets provider (e.g. 'vault', 'aws-secrets-manager', 'azure-key-vault', 'github-secrets', 'env-vars')."
+            },
+            "references": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "description": "The secret key name."
+                  },
+                  "ref": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512,
+                    "description": "The reference path or identifier in the secrets provider."
+                  },
+                  "envVarName": {
+                    "type": "string",
+                    "pattern": "^[A-Z][A-Z0-9_]*$",
+                    "maxLength": 256,
+                    "description": "The environment variable name this secret maps to."
+                  }
+                },
+                "required": [
+                  "key"
+                ],
+                "description": "A reference to an external secret."
+              },
+              "description": "References to external secrets."
+            }
+          },
+          "description": "Environment variables and secrets references for the generated project."
+        },
+        "runtimeRequirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "minNodeVersion": {
+              "type": "string",
+              "maxLength": 16,
+              "description": "Minimum Node.js version required."
+            },
+            "minPlaywrightVersion": {
+              "type": "string",
+              "maxLength": 16,
+              "description": "Minimum Playwright version required."
+            },
+            "systemDependencies": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "System-level dependencies (e.g. 'libwebkit2gtk', 'libnss3', 'fonts-noto')."
+            }
+          },
+          "description": "Runtime requirements for the generated project."
+        }
+      },
+      "description": "Environment configuration for the generated project — environment variables, secrets references, and runtime requirements."
+    },
+    "artifactConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "screenshots": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "only-on-failure"
+          ],
+          "default": "only-on-failure",
+          "description": "Screenshot capture mode for the project."
+        },
+        "video": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "retain-on-failure",
+            "on-first-retry"
+          ],
+          "default": "on-first-retry",
+          "description": "Video recording mode for the project."
+        },
+        "trace": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on",
+            "retain-on-failure",
+            "on-first-retry"
+          ],
+          "default": "on-first-retry",
+          "description": "Trace recording mode for the project."
+        },
+        "snapshots": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether snapshot testing is enabled."
+        },
+        "outputDirs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "screenshotsDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/screenshots",
+              "description": "Directory for screenshot artifacts."
+            },
+            "videosDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/videos",
+              "description": "Directory for video artifacts."
+            },
+            "tracesDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/traces",
+              "description": "Directory for trace artifacts."
+            },
+            "downloadsDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/downloads",
+              "description": "Directory for downloaded files."
+            },
+            "reportsDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/reports",
+              "description": "Directory for test reports."
+            },
+            "logsDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/logs",
+              "description": "Directory for log files."
+            },
+            "coverageDir": {
+              "type": "string",
+              "maxLength": 512,
+              "default": "artifacts/coverage",
+              "description": "Directory for coverage reports."
+            }
+          },
+          "description": "Output directories for generated artifacts."
+        },
+        "maxArtifactSize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum total artifact size in megabytes. 0 means unlimited."
+        },
+        "artifactRetention": {
+          "type": "string",
+          "enum": [
+            "run",
+            "day",
+            "week",
+            "month",
+            "forever"
+          ],
+          "default": "run",
+          "description": "How long generated artifacts are retained."
+        }
+      },
+      "description": "Artifact output configuration for the generated project — screenshots, videos, traces, snapshots, and output directories."
+    },
+    "generationMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generatedAt",
+        "generatorVersion",
+        "sourceContracts"
+      ],
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the project blueprint was generated."
+        },
+        "generationDuration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total generation duration in milliseconds."
+        },
+        "generatorVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Version identifier of the Code Generation Agent that produced this blueprint."
+        },
+        "sourceContracts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "testCase": {
+              "type": "boolean",
+              "description": "Whether test-case.json was used as a source."
+            },
+            "applicationInventory": {
+              "type": "boolean",
+              "description": "Whether application-inventory.json was used as a source."
+            },
+            "domInventory": {
+              "type": "boolean",
+              "description": "Whether dom-inventory.json was used as a source."
+            },
+            "testRunRequest": {
+              "type": "boolean",
+              "description": "Whether test-run-request.json was used as a source."
+            },
+            "testCaseRef": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Reference to the source test-case.json file or identifier."
+            },
+            "applicationInventoryRef": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Reference to the source application-inventory.json file or identifier."
+            },
+            "domInventoryRef": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Reference to the source dom-inventory.json file or identifier."
+            }
+          },
+          "description": "Records which source contracts were consumed to produce this project blueprint."
+        },
+        "totalInputTestCases": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of test cases processed from test-case.json."
+        },
+        "totalInputSuites": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of test suites processed from test-case.json."
+        },
+        "totalGeneratedFiles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of files specified for generation."
+        },
+        "totalEstimatedLines": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total estimated lines of code across all generated files."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Overall confidence score for the generated project blueprint."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generationEvent"
+          },
+          "description": "Non-fatal warnings encountered during project generation."
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generationEvent"
+          },
+          "description": "Fatal or unrecoverable errors encountered during project generation."
+        }
+      },
+      "description": "Metadata about the project blueprint generation process — when it ran, which source contracts were consumed, the generator version, total file counts, overall confidence, and warnings."
+    },
+    "generationEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Machine-readable event code. Examples: PAGE_OBJECT_MERGE, SELECTOR_AMBIGUITY, FIXTURE_CONFLICT, UNRESOLVED_IMPORT, CONFIG_OVERRIDE."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Human-readable description of the event."
+        },
+        "fileId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The fileId associated with this event, if applicable."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event occurred."
+        }
+      },
+      "description": "A single warning or error event recorded during project blueprint generation."
+    }
+  }
+}

@@ -1,0 +1,550 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.agentic-testing-platform.io/contracts/v1/crawl-package.json",
+  "title": "Crawl Package",
+  "description": "Immutable output of the AI Crawler Agent. Contains everything discovered during crawling — visited pages, navigation graph, assets, session state, and crawl metadata — that downstream agents require for analysis. This contract precedes all DOM and runtime analysis.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "requestId",
+    "crawlSummary",
+    "visitedPages",
+    "navigationGraph"
+  ],
+  "properties": {
+    "runId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Globally unique identifier for the test execution run. Must match the runId from the originating test-run-request.json."
+    },
+    "requestId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Correlation identifier from the originating HTTP request. Must match the requestId from the originating test-run-request.json."
+    },
+    "applicationId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Identifier of the application that was crawled. Populated when the application was previously registered."
+    },
+    "crawlSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "startTime",
+        "endTime",
+        "status"
+      ],
+      "properties": {
+        "startTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the crawl began."
+        },
+        "endTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the crawl finished, either by completing all pages or by reaching a termination condition."
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total crawl duration in milliseconds. Computed as endTime minus startTime."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "partial",
+            "timeout",
+            "error"
+          ],
+          "description": "Final state of the crawl. Completed means all discoverable pages were visited within budget. Partial means some pages were skipped due to budget or scope limits. Timeout means the crawl exceeded the configured maximum duration. Error means the crawl terminated due to an unrecoverable failure."
+        },
+        "pagesVisited": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of pages successfully crawled and recorded."
+        },
+        "pagesSkipped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of pages discovered but not crawled due to scope filters, budget limits, or errors."
+        },
+        "totalLinks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of unique hyperlinks discovered across all visited pages."
+        },
+        "crawlDepthReached": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The maximum link-following depth actually reached during the crawl. May be less than the configured maxCrawlDepth if the application has fewer navigable layers."
+        }
+      },
+      "description": "High-level summary of the crawl execution, including timing, status, and page counts."
+    },
+    "visitedPages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pageRecord"
+      },
+      "minItems": 0,
+      "description": "All pages successfully visited during the crawl. Each record contains metadata about the page at the time it was crawled — URL, HTTP status, timing, and position in the crawl tree."
+    },
+    "navigationGraph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edges"
+      ],
+      "properties": {
+        "edges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/navigationEdge"
+          },
+          "minItems": 0,
+          "description": "Directed edges representing navigation paths between pages. An edge from sourcePageId to targetPageId means the crawler found a link on the source page pointing to the target page."
+        },
+        "rootPageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the entry point page from which the crawl started."
+        }
+      },
+      "description": "Directed graph representing the discovered navigation structure of the application. Used by downstream agents to understand page relationships and user flows."
+    },
+    "assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stylesheets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assetRecord"
+          },
+          "description": "CSS stylesheets referenced by visited pages."
+        },
+        "scripts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assetRecord"
+          },
+          "description": "JavaScript files referenced by visited pages."
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assetRecord"
+          },
+          "description": "Image files referenced by visited pages."
+        },
+        "fonts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assetRecord"
+          },
+          "description": "Font files referenced by visited pages."
+        }
+      },
+      "description": "External assets discovered across all visited pages. Grouped by type for convenient downstream filtering."
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "authenticated": {
+          "type": "boolean",
+          "description": "Indicates whether the crawler's browser session was in an authenticated state after the login step."
+        },
+        "authMethod": {
+          "type": "string",
+          "enum": [
+            "form",
+            "api",
+            "basic",
+            "oauth",
+            "sso",
+            "none",
+            "unknown"
+          ],
+          "description": "The authentication method used (or detected) during the crawl."
+        },
+        "authPageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the login or authentication page, if one was encountered during the crawl."
+        },
+        "cookies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cookieRecord"
+          },
+          "description": "Browser cookies present in the session at the end of the crawl. Sensitive cookies (session tokens, auth credentials) are redacted."
+        },
+        "redirects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/redirectRecord"
+          },
+          "description": "HTTP redirects observed during the crawl. Useful for detecting redirect chains that may affect test reliability."
+        }
+      },
+      "description": "Browser session state observed during the crawl. Provides downstream agents with authentication context and redirect information."
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/crawlEvent"
+      },
+      "description": "Non-fatal issues encountered during the crawl. Warnings indicate conditions that may affect downstream analysis quality but did not prevent the crawl from continuing."
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/crawlEvent"
+      },
+      "description": "Fatal or unrecoverable errors encountered during the crawl. Errors caused one or more pages to be skipped or the crawl to terminate early."
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "responseTimeMs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "average": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Average page response time across all visited pages, in milliseconds."
+            },
+            "median": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Median page response time across all visited pages, in milliseconds."
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum page response time observed, in milliseconds."
+            },
+            "min": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum page response time observed, in milliseconds."
+            }
+          },
+          "description": "Page response time statistics across all visited pages."
+        },
+        "pagesByStatusCode": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxProperties": 20,
+          "description": "Count of pages grouped by HTTP status code. Keys are status code strings (e.g. '200', '301', '404'). Example: {'200': 42, '301': 3, '404': 1}."
+        },
+        "pagesByContentType": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxProperties": 30,
+          "description": "Count of pages grouped by content type. Keys are MIME type strings (e.g. 'text/html', 'application/json'). Example: {'text/html': 38, 'application/json': 6}."
+        },
+        "uniqueDomains": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of unique host domains referenced across all visited pages, including the target domain and external domains."
+        },
+        "bytesDownloaded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total bytes downloaded during the crawl, including page HTML, network traffic, and referenced assets within the crawl scope."
+        }
+      },
+      "description": "Aggregated crawl statistics computed from the visited pages, navigation graph, and assets. Provides at-a-glance quality indicators for downstream agents."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A universally unique identifier in standard 8-4-4-4-12 hexadecimal format."
+    },
+    "pageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageId",
+        "url"
+      ],
+      "properties": {
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this page within the crawl. Referenced by navigation edges and downstream analysis records."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The full URL of the page as discovered during crawling."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The HTML title tag content of the page, if present."
+        },
+        "statusCode": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "description": "HTTP response status code returned when the page was fetched."
+        },
+        "contentType": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The MIME content type of the page response (e.g. 'text/html; charset=utf-8')."
+        },
+        "contentLength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size of the page HTML body in bytes."
+        },
+        "responseTime": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Page load response time in milliseconds, from request initiation to the first meaningful paint."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Link-following depth at which this page was discovered. The root page has depth 0."
+        },
+        "parentPageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the page from which this page was discovered via a hyperlink. Null for the root page."
+        },
+        "discoveredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when this page was first discovered during the crawl."
+        },
+        "cachedContentPath": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Relative path to the cached HTML content file in the raw-crawl-packages storage. Enables downstream agents to re-read the page without a fresh HTTP request."
+        }
+      },
+      "description": "A single page visited during the crawl, with its HTTP metadata, position in the crawl tree, and reference to the cached raw content."
+    },
+    "navigationEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourcePageId",
+        "targetPageId"
+      ],
+      "properties": {
+        "sourcePageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the page containing the link."
+        },
+        "targetPageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the page that the link points to."
+        },
+        "linkText": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "The visible text of the hyperlink, if present. Empty for image links or icon-only links."
+        },
+        "linkUrl": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The raw href attribute value of the hyperlink, before URL normalisation."
+        },
+        "relationship": {
+          "type": "string",
+          "enum": [
+            "navigation",
+            "form",
+            "api",
+            "static",
+            "unknown"
+          ],
+          "default": "navigation",
+          "description": "The type of relationship this edge represents. Navigation edges link to other pages. Form edges indicate form actions. API edges indicate AJAX or fetch targets. Static edges reference static assets."
+        }
+      },
+      "description": "A directed edge in the navigation graph, representing a hyperlink or navigation action from one page to another."
+    },
+    "assetRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The URL of the asset as referenced in the page source."
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "MIME type or subtype classification of the asset (e.g. 'text/css', 'application/javascript', 'image/png', 'font/woff2')."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Size of the asset in bytes, if determinable from the response."
+        },
+        "external": {
+          "type": "boolean",
+          "description": "Indicates whether the asset is hosted on a domain different from the target application. External assets are excluded from self-healing and localisation analysis."
+        },
+        "firstSeenOnPageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the first page on which this asset was discovered."
+        }
+      },
+      "description": "A single external asset referenced by one or more visited pages."
+    },
+    "cookieRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "domain"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The cookie name."
+        },
+        "domain": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "The domain to which the cookie belongs."
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The URL path scope of the cookie."
+        },
+        "httpOnly": {
+          "type": "boolean",
+          "description": "Indicates whether the cookie has the HttpOnly flag set."
+        },
+        "secure": {
+          "type": "boolean",
+          "description": "Indicates whether the cookie has the Secure flag set."
+        },
+        "sameSite": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "lax",
+            "none"
+          ],
+          "description": "The SameSite attribute of the cookie."
+        },
+        "redacted": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, the cookie value has been redacted from the record. The cookie name, domain, and flags are preserved for analysis, but the value is removed."
+        }
+      },
+      "description": "A single cookie present in the browser session during the crawl. Cookie values are redacted for sensitive cookies."
+    },
+    "redirectRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "statusCode"
+      ],
+      "properties": {
+        "from": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The original URL that was redirected."
+        },
+        "to": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The target URL after redirection."
+        },
+        "statusCode": {
+          "type": "integer",
+          "enum": [
+            301,
+            302,
+            303,
+            307,
+            308
+          ],
+          "description": "The HTTP redirect status code."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the page on which this redirect was observed."
+        }
+      },
+      "description": "A single HTTP redirect observed during the crawl."
+    },
+    "crawlEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "A machine-readable event code for categorisation. Examples: PAGE_TIMEOUT, LOGIN_FAILED, SCOPE_EXCLUDED, MAX_DEPTH_REACHED."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "A human-readable description of the event."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId of the page associated with this event, if applicable."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The URL associated with this event, if different from the page's primary URL."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event occurred."
+        }
+      },
+      "description": "A single event — warning or error — recorded during the crawl. Warnings are non-fatal; errors caused pages to be skipped or the crawl to terminate."
+    }
+  }
+}

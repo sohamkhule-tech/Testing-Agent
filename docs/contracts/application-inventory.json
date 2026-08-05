@@ -1,0 +1,2837 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.agentic-testing-platform.io/contracts/v1/application-inventory.json",
+  "title": "Application Inventory",
+  "description": "Canonical semantic representation of the application produced by the Inventory Aggregator Agent. Transforms thousands of low-level DOM discoveries into a structured, business-oriented knowledge graph of the application — its modules, features, pages, workflows, entities, navigation, authentication, authorization, shared components, validation rules, business capabilities, integration points, and risk indicators. This is the primary knowledge source consumed by the Test Design Agent for test generation.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "requestId",
+    "applicationMetadata",
+    "inventoryMetadata"
+  ],
+  "properties": {
+    "runId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Globally unique identifier for the test execution run. Must match the runId from test-run-request.json, crawl-package.json, and dom-inventory.json."
+    },
+    "requestId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Correlation identifier from the originating HTTP request. Must match the requestId across all pipeline contracts."
+    },
+    "applicationMetadata": {
+      "$ref": "#/$defs/applicationMetadata",
+      "description": "Top-level metadata describing the application being analysed — its identity, version, technology stack, deployment target, and business context."
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/moduleInventory"
+      },
+      "minItems": 0,
+      "description": "Logical business modules discovered within the application. Each module represents a cohesive business domain such as Authentication, Administration, Sales, HR, or Inventory. Modules group related pages, features, entities, and workflows."
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/featureInventory"
+      },
+      "minItems": 0,
+      "description": "User-facing capabilities discovered in the application. Each feature represents a discrete unit of functionality from the user's perspective — Login, Search, Create User, Checkout, Export Report, Approve Request. Features reference the pages, forms, tables, and dialogs that implement them."
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pageModel"
+      },
+      "minItems": 0,
+      "description": "Business-level page model enriched by the aggregator. Each page record references the lower-level pageId from dom-inventory.json and adds business context — module association, purpose, entry points, associated workflows, actions, and navigation targets. This is NOT a DOM page model."
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workflowModel"
+      },
+      "minItems": 0,
+      "description": "End-to-end user workflows discovered or inferred from the application. Each workflow represents a complete user journey — Login Flow, Registration Flow, Checkout Flow, Approval Flow — with its trigger, steps, decision points, and exit states."
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entityModel"
+      },
+      "minItems": 0,
+      "description": "Business entities discovered in the application. Each entity represents a core business concept — User, Customer, Invoice, Order, Product — with its attributes, associated data forms and tables, CRUD operations, and relationships to other entities."
+    },
+    "navigationModel": {
+      "$ref": "#/$defs/navigationModel",
+      "description": "High-level navigation model of the application. Describes how users traverse the application — entry points, global and module navigation structures, deep links, and cross-module navigation pathways."
+    },
+    "authentication": {
+      "$ref": "#/$defs/authenticationModel",
+      "description": "Authentication mechanisms discovered in the application. Captures login methods, logout behaviour, session handling, password reset, MFA, and registration flows."
+    },
+    "authorization": {
+      "$ref": "#/$defs/authorizationModel",
+      "description": "Authorization model of the application. Captures discovered roles, permission structures, protected pages and actions, and role dependency hierarchies."
+    },
+    "sharedComponents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sharedComponent"
+      },
+      "minItems": 0,
+      "description": "Reusable UI components and patterns discovered across the application. Each shared component represents a UI pattern that appears on multiple pages — Header, Footer, Sidebar, Search, Date Picker, Pagination, File Upload, Toast Notification, Modal Dialog."
+    },
+    "validationRules": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/validationRule"
+      },
+      "minItems": 0,
+      "description": "Aggregated validation rules discovered across all forms and inputs in the application. Each rule captures a distinct validation constraint — required fields, regex patterns, length limits, numeric ranges, business rules, and cross-field validations."
+    },
+    "businessCapabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/businessCapability"
+      },
+      "minItems": 0,
+      "description": "High-level business capabilities the application delivers. Each capability represents a significant area of business functionality — User Management, Reporting, Billing, Inventory Management, Workflow Automation, Document Management."
+    },
+    "integrationPoints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/integrationPoint"
+      },
+      "minItems": 0,
+      "description": "External integration points discovered during analysis. Captures REST APIs, GraphQL endpoints, external login providers, payment gateways, maps, analytics services, storage providers, and email services."
+    },
+    "riskIndicators": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/riskIndicator"
+      },
+      "minItems": 0,
+      "description": "Areas of the application identified as high-risk for test design. Risk indicators flag regions that are likely to require deeper testing — large forms, complex tables, dynamic components, infinite scroll, nested dialogs, heavy JavaScript, file upload, authentication, authorization boundaries."
+    },
+    "coverageSummary": {
+      "$ref": "#/$defs/coverageSummary",
+      "description": "Aggregated coverage and confidence metrics for the application inventory. Provides at-a-glance indicators for inventory completeness — total modules, features, workflows, entities, shared components, validation rules, and overall confidence."
+    },
+    "inventoryMetadata": {
+      "$ref": "#/$defs/inventoryMetadata",
+      "description": "Metadata about the aggregation process itself — when it ran, which source contracts were consumed, the aggregator version, overall confidence, and any warnings or errors encountered."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A universally unique identifier in standard 8-4-4-4-12 hexadecimal format."
+    },
+    "applicationMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationName",
+        "baseUrl"
+      ],
+      "properties": {
+        "applicationId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for the application. Populated when the application was previously registered. Correlates with applicationId in crawl-package.json."
+        },
+        "applicationName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the application. Derived from the application registration or inferred from page titles and meta tags."
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Detected version of the application. Extracted from meta tags, build artifacts, or API response headers."
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The base URL of the target application. Matches the baseUrl from the originating test-run-request.json."
+        },
+        "environment": {
+          "type": "string",
+          "enum": [
+            "development",
+            "staging",
+            "production"
+          ],
+          "description": "The deployment environment of the application. Matches the environment from test-run-request.json."
+        },
+        "framework": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The primary frontend framework detected. Inferred from dom-inventory.json framework detection across all pages."
+        },
+        "metaFramework": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The meta-framework detected, if any (e.g. Next.js, Nuxt, Remix). Inferred from dom-inventory.json framework detection."
+        },
+        "technologyStack": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "frontend": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Frontend technologies detected (e.g. React, Vue, TypeScript, Tailwind CSS, Material UI)."
+            },
+            "backend": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Backend technologies inferred from API patterns and response signatures (e.g. Node.js, .NET, Java, Python, GraphQL, REST)."
+            },
+            "databases": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Database technologies inferred from API patterns and naming conventions (e.g. PostgreSQL, MongoDB, SQL Server)."
+            },
+            "infrastructure": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "description": "Infrastructure and platform technologies detected (e.g. Docker, Kubernetes, AWS, Azure, Vercel, Netlify)."
+            }
+          },
+          "description": "Full technology stack detected for the application. Inferred from DOM analysis, script bundles, API response headers, and infrastructure signatures."
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "maxLength": 10,
+          "description": "Primary language of the application in BCP 47 format. Inferred from the most common language across all discovered pages."
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+            "maxLength": 10
+          },
+          "description": "All languages detected across the application. Populated when pages use multiple languages for internationalisation."
+        },
+        "deploymentType": {
+          "type": "string",
+          "enum": [
+            "singlePageApplication",
+            "serverSideRendered",
+            "staticSite",
+            "hybrid",
+            "traditionalWebApp",
+            "progressiveWebApp",
+            "mobileHybrid",
+            "unknown"
+          ],
+          "description": "The deployment and rendering architecture of the application. Inferred from render mode analysis and framework detection."
+        },
+        "applicationType": {
+          "type": "string",
+          "enum": [
+            "eCommerce",
+            "enterprisePortal",
+            "dashboard",
+            "contentManagement",
+            "customerRelationship",
+            "humanResources",
+            "financial",
+            "healthcare",
+            "education",
+            "social",
+            "communication",
+            "developerTool",
+            "internalTool",
+            "unknown"
+          ],
+          "description": "Business category of the application. Inferred from page types, content analysis, and URL patterns across all discovered pages."
+        },
+        "pageCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of unique pages discovered and analysed across the application."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "A summary description of the application's purpose. Inferred from page content, meta descriptions, and structural analysis."
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "maxItems": 20,
+          "description": "Business tags categorising the application. Inferred from URL patterns, content analysis, and page types."
+        }
+      },
+      "description": "Top-level metadata about the application under analysis. Captures identity, version, technology stack, deployment architecture, and business classification."
+    },
+    "moduleInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "moduleId",
+        "name"
+      ],
+      "properties": {
+        "moduleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this business module within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the business module (e.g. Authentication, Administration, Sales, Inventory, Orders, Reports, Settings)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of the module's business purpose and responsibilities."
+        },
+        "moduleType": {
+          "type": "string",
+          "enum": [
+            "core",
+            "administrative",
+            "operational",
+            "analytical",
+            "collaboration",
+            "communication",
+            "integration",
+            "settings"
+          ],
+          "description": "Classification of the module by its primary function within the application."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pageReference"
+          },
+          "description": "Pages belonging to this module. Orders pages by navigation hierarchy with the primary page first."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Feature IDs of user-facing capabilities within this module."
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Entity IDs of business entities managed by this module."
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "moduleId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The moduleId of the dependent module."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "navigation",
+                  "data",
+                  "authentication",
+                  "authorization",
+                  "feature"
+                ],
+                "description": "The nature of the dependency between modules."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of how this module depends on the other."
+              }
+            },
+            "required": [
+              "moduleId",
+              "type"
+            ],
+            "description": "A dependency from this module to another module."
+          },
+          "description": "Dependencies this module has on other modules. Captures navigation flows, data sharing, authentication requirements, and feature dependencies."
+        },
+        "entryPoint": {
+          "$ref": "#/$defs/pageReference",
+          "description": "The primary landing page or entry point for this module."
+        },
+        "riskLevel": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "Assessed risk level for this module based on complexity, sensitivity of data handled, form count, authentication requirements, and interdependencies."
+        },
+        "complexity": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "moderate",
+            "complex",
+            "veryComplex"
+          ],
+          "description": "Structural complexity assessment based on page count, feature count, entity relationships, and workflow depth."
+        },
+        "sortOrder": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Suggested display order for the module in navigation. Lower numbers appear first."
+        }
+      },
+      "description": "A logical business module within the application. Modules group related pages, features, entities, and workflows into cohesive business domains."
+    },
+    "featureInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "featureId",
+        "name"
+      ],
+      "properties": {
+        "featureId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this feature within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the feature (e.g. Login, Search, Create User, Checkout, Export Report, Approve Request)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of what the feature does from the user's perspective."
+        },
+        "moduleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The moduleId of the parent business module this feature belongs to."
+        },
+        "featureType": {
+          "type": "string",
+          "enum": [
+            "create",
+            "read",
+            "update",
+            "delete",
+            "search",
+            "list",
+            "import",
+            "export",
+            "approve",
+            "reject",
+            "submit",
+            "upload",
+            "download",
+            "notify",
+            "authenticate",
+            "authorize",
+            "configure",
+            "report",
+            "dashboard",
+            "workflow",
+            "integration",
+            "other"
+          ],
+          "description": "The type of operation this feature represents from a CRUD and business perspective."
+        },
+        "criticality": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "Business criticality of the feature. Critical features are essential for core business operations."
+        },
+        "frequency": {
+          "type": "string",
+          "enum": [
+            "always",
+            "frequently",
+            "occasionally",
+            "rarely"
+          ],
+          "description": "Estimated usage frequency of this feature by end users."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pageReference"
+          },
+          "description": "Pages that implement this feature. Ordered by primary implementation page first."
+        },
+        "forms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/formReference"
+          },
+          "description": "Forms associated with this feature. References formId from dom-inventory.json."
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tableReference"
+          },
+          "description": "Tables associated with this feature. References tableId from dom-inventory.json."
+        },
+        "dialogs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dialogReference"
+          },
+          "description": "Dialogs associated with this feature. References dialogId from dom-inventory.json."
+        },
+        "navigation": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "entryPoints": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/pageReference"
+              },
+              "description": "Pages from which this feature can be accessed."
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/pageReference"
+              },
+              "description": "Pages that this feature navigates to upon completion."
+            }
+          },
+          "description": "Navigation context for this feature — how users reach it and where they go from it."
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Entity IDs of business entities involved in this feature."
+        },
+        "authentication": {
+          "type": "boolean",
+          "description": "Whether this feature requires authentication to access."
+        },
+        "authorization": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": "Roles or permissions required to access this feature."
+        },
+        "workflowIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Workflow IDs of end-to-end workflows that include this feature."
+        }
+      },
+      "description": "A discrete user-facing capability within the application. Features represent what the user can do — Login, Create Record, Search, Export — and reference the pages, forms, tables, and dialogs that implement them."
+    },
+    "pageModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageId",
+        "name"
+      ],
+      "properties": {
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId from dom-inventory.json that this business page model enriches. Provides the correlation link to the lower-level DOM discovery."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Business-oriented name for the page. Derived from the page title and purpose, not the URL or HTML title tag."
+        },
+        "moduleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The moduleId of the business module this page belongs to."
+        },
+        "pageType": {
+          "type": "string",
+          "enum": [
+            "landing",
+            "dashboard",
+            "list",
+            "detail",
+            "form",
+            "search",
+            "report",
+            "settings",
+            "profile",
+            "login",
+            "register",
+            "error",
+            "confirmation",
+            "onboarding",
+            "wizard",
+            "portal"
+          ],
+          "description": "Business classification of the page's purpose, not its HTML structure."
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Business-oriented description of what this page is for — the user goal it fulfills."
+        },
+        "entryPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "sourcePageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the page from which users navigate to this page."
+              },
+              "via": {
+                "type": "string",
+                "maxLength": 128,
+                "description": "How users reach this page — menu item, link, button, redirect, direct URL."
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The visible label of the navigation element."
+              }
+            },
+            "required": [
+              "sourcePageId"
+            ],
+            "description": "A single navigation entry point to this page."
+          },
+          "description": "How users reach this page — menu items, links, buttons, or redirects from other pages."
+        },
+        "forms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/formReference"
+          },
+          "description": "Forms present on this page, referenced by formId from dom-inventory.json."
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tableReference"
+          },
+          "description": "Tables present on this page, referenced by tableId from dom-inventory.json."
+        },
+        "dialogs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dialogReference"
+          },
+          "description": "Dialogs present on this page, referenced by dialogId from dom-inventory.json."
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "Business name for the action (e.g. Create User, Edit Profile, Delete Order, Submit Request)."
+              },
+              "actionType": {
+                "type": "string",
+                "enum": [
+                  "create",
+                  "read",
+                  "update",
+                  "delete",
+                  "submit",
+                  "cancel",
+                  "approve",
+                  "reject",
+                  "export",
+                  "import",
+                  "print",
+                  "share",
+                  "navigate",
+                  "custom"
+                ],
+                "description": "The category of action the user can perform on this page."
+              },
+              "featureId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The featureId of the feature this action belongs to."
+              },
+              "targetPageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the page this action navigates to, if applicable."
+              },
+              "requiresAuthentication": {
+                "type": "boolean",
+                "description": "Whether this action requires the user to be authenticated."
+              },
+              "requiresAuthorization": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "Roles or permissions required to perform this action."
+              },
+              "confirmationRequired": {
+                "type": "boolean",
+                "description": "Whether this action shows a confirmation dialog before execution."
+              }
+            },
+            "required": [
+              "name",
+              "actionType"
+            ],
+            "description": "A single action a user can perform on this page."
+          },
+          "description": "Business actions available on this page. Each action represents a meaningful user operation."
+        },
+        "navigationTargets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "targetPageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the target page."
+              },
+              "relationship": {
+                "type": "string",
+                "enum": [
+                  "link",
+                  "formSubmit",
+                  "action",
+                  "breadcrumb",
+                  "tab",
+                  "workflow"
+                ],
+                "description": "The nature of the navigation relationship."
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The visible label of the navigation element."
+              }
+            },
+            "required": [
+              "targetPageId"
+            ],
+            "description": "A single navigation target from this page."
+          },
+          "description": "Pages that can be reached from this page via links, form submissions, or actions."
+        },
+        "sectionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Identifiers for logical sections or regions within the page identified by the aggregator (e.g. 'header', 'mainContent', 'sidebar', 'footer', 'searchResults')."
+        },
+        "workflowIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Workflow IDs of end-to-end workflows that include this page."
+        }
+      },
+      "description": "Business-level page model enriched by the Inventory Aggregator. This is NOT a DOM page — it is a semantic description of the page's business purpose, actions, forms, tables, dialogs, and navigation relationships."
+    },
+    "workflowModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflowId",
+        "name",
+        "steps"
+      ],
+      "properties": {
+        "workflowId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this workflow within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the workflow (e.g. Login Flow, Registration Flow, Checkout Flow, Approval Flow, Profile Update Flow)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of what the workflow accomplishes from end to end."
+        },
+        "moduleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The moduleId of the primary module this workflow belongs to."
+        },
+        "trigger": {
+          "$ref": "#/$defs/workflowStep",
+          "description": "The event or user action that initiates this workflow."
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workflowStep"
+          },
+          "minItems": 1,
+          "description": "Ordered sequence of steps in the workflow. Each step represents a user action, system operation, or decision point."
+        },
+        "decisionPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "stepIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Index of the step where the decision occurs."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of the decision to be made."
+              },
+              "branches": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "condition": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "description": "The condition that leads to this branch (e.g. 'valid input', 'approval granted', 'user cancels')."
+                    },
+                    "nextStepIndex": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "The step index this branch leads to. Null if the branch exits the workflow."
+                    }
+                  },
+                  "required": [
+                    "condition"
+                  ],
+                  "description": "A single branch from a decision point."
+                },
+                "minItems": 2,
+                "description": "Possible branches from this decision point."
+              }
+            },
+            "required": [
+              "stepIndex",
+              "description",
+              "branches"
+            ],
+            "description": "A decision point in the workflow where the path branches based on conditions."
+          },
+          "description": "Decision points in the workflow where the user or system chooses between alternative paths."
+        },
+        "exitStates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The exit state name (e.g. 'success', 'failure', 'cancelled', 'pending', 'requiresApproval')."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of what this exit state means."
+              },
+              "nextWorkflowId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The workflowId of a subsequent workflow triggered by this exit state."
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "description": "A single exit state the workflow can end in."
+          },
+          "description": "Possible terminal states the workflow can end in. Each state may trigger a subsequent workflow."
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Entity IDs of business entities involved in this workflow."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pageReference"
+          },
+          "description": "Pages involved in this workflow, in the order they appear."
+        },
+        "criticality": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "Business criticality of this workflow."
+        },
+        "frequency": {
+          "type": "string",
+          "enum": [
+            "always",
+            "frequently",
+            "occasionally",
+            "rarely"
+          ],
+          "description": "Estimated usage frequency of this workflow."
+        },
+        "authenticationRequired": {
+          "type": "boolean",
+          "description": "Whether the user must be authenticated to execute this workflow."
+        },
+        "complexity": {
+          "type": "string",
+          "enum": [
+            "simple",
+            "moderate",
+            "complex",
+            "veryComplex"
+          ],
+          "description": "Complexity assessment based on step count, decision points, and branching depth."
+        }
+      },
+      "description": "An end-to-end user workflow representing a complete user journey through the application. Workflows are composed of sequential steps, decision points, and exit states."
+    },
+    "workflowStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name for this step (e.g. 'Enter Credentials', 'Click Login', 'Redirect to Dashboard')."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what happens in this step."
+        },
+        "stepType": {
+          "type": "string",
+          "enum": [
+            "userAction",
+            "systemOperation",
+            "navigation",
+            "formSubmission",
+            "apiCall",
+            "decision",
+            "wait",
+            "notification",
+            "redirect",
+            "exit"
+          ],
+          "description": "The type of action this step represents."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId where this step takes place."
+        },
+        "featureId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The featureId associated with this step."
+        },
+        "formId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The formId from dom-inventory.json if this step involves form interaction."
+        },
+        "expectedOutcome": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "What is expected to happen after this step completes successfully."
+        },
+        "errorStates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "description": "Possible error conditions or failure modes for this step."
+        },
+        "validationRules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "description": "Validation rules that apply at this step."
+        }
+      },
+      "description": "A single step within a user workflow. Steps represent user actions, system operations, navigation events, or decision points."
+    },
+    "entityModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entityId",
+        "name"
+      ],
+      "properties": {
+        "entityId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this entity within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the business entity (e.g. User, Customer, Invoice, Order, Product, Employee, Role, Request)."
+        },
+        "pluralName": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The plural form of the entity name (e.g. Users, Customers, Invoices, Orders)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of what this entity represents in the business domain."
+        },
+        "moduleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The moduleId of the primary module that manages this entity."
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "The attribute name (e.g. email, firstName, totalAmount, status, createdAt)."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "integer",
+                  "number",
+                  "boolean",
+                  "date",
+                  "datetime",
+                  "email",
+                  "phone",
+                  "url",
+                  "enum",
+                  "text",
+                  "foreignKey",
+                  "computed",
+                  "unknown"
+                ],
+                "description": "The data type of the attribute."
+              },
+              "required": {
+                "type": "boolean",
+                "description": "Whether this attribute is required."
+              },
+              "unique": {
+                "type": "boolean",
+                "description": "Whether this attribute must be unique."
+              },
+              "sensitive": {
+                "type": "boolean",
+                "description": "Whether this attribute contains sensitive data (PII, credentials, financial)."
+              },
+              "constraints": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "minLength": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Minimum length constraint."
+                  },
+                  "maxLength": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Maximum length constraint."
+                  },
+                  "min": {
+                    "type": "number",
+                    "description": "Minimum value constraint."
+                  },
+                  "max": {
+                    "type": "number",
+                    "description": "Maximum value constraint."
+                  },
+                  "pattern": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "description": "Regex pattern constraint."
+                  },
+                  "enumValues": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 256
+                    },
+                    "description": "Allowed values for enum types."
+                  }
+                },
+                "description": "Validation constraints for this attribute."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Business description of the attribute."
+              }
+            },
+            "required": [
+              "name",
+              "type"
+            ],
+            "description": "A single attribute of the business entity."
+          },
+          "description": "Attributes or properties of the business entity. Derived from form controls, table columns, and API analysis."
+        },
+        "keyAttributes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": "Names of attributes that serve as primary identifiers or keys for this entity."
+        },
+        "forms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/formReference"
+          },
+          "description": "Forms used to create, read, update, or delete this entity."
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tableReference"
+          },
+          "description": "Tables that display or list instances of this entity."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pageReference"
+          },
+          "description": "Pages where this entity is managed or displayed."
+        },
+        "relationships": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "targetEntityId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The entityId of the related entity."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oneToOne",
+                  "oneToMany",
+                  "manyToOne",
+                  "manyToMany",
+                  "composition",
+                  "aggregation",
+                  "dependency"
+                ],
+                "description": "The cardinality and nature of the relationship."
+              },
+              "viaAttribute": {
+                "type": "string",
+                "maxLength": 128,
+                "description": "The attribute through which the relationship is established (foreign key)."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of the relationship."
+              }
+            },
+            "required": [
+              "targetEntityId",
+              "type"
+            ],
+            "description": "A relationship to another business entity."
+          },
+          "description": "Relationships this entity has with other business entities."
+        },
+        "crudSupport": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean",
+              "description": "Whether the application supports creating this entity."
+            },
+            "read": {
+              "type": "boolean",
+              "description": "Whether the application supports viewing this entity's details."
+            },
+            "update": {
+              "type": "boolean",
+              "description": "Whether the application supports editing this entity."
+            },
+            "delete": {
+              "type": "boolean",
+              "description": "Whether the application supports deleting this entity."
+            },
+            "search": {
+              "type": "boolean",
+              "description": "Whether the application supports searching or listing this entity."
+            },
+            "import": {
+              "type": "boolean",
+              "description": "Whether the application supports importing this entity in bulk."
+            },
+            "export": {
+              "type": "boolean",
+              "description": "Whether the application supports exporting this entity's data."
+            }
+          },
+          "description": "CRUD operations supported for this entity."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Feature IDs of capabilities that operate on this entity."
+        }
+      },
+      "description": "A business entity discovered in the application. Entities represent core business concepts — User, Customer, Invoice, Order, Product — with their attributes, CRUD support, relationships, and associated UI components."
+    },
+    "navigationModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entryPoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the entry point page."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "root",
+                  "login",
+                  "landing",
+                  "public"
+                ],
+                "description": "The type of entry point."
+              },
+              "authRequired": {
+                "type": "boolean",
+                "description": "Whether authentication is required at this entry point."
+              }
+            },
+            "required": [
+              "pageId",
+              "type"
+            ],
+            "description": "An application entry point."
+          },
+          "description": "Application entry points — the pages users first encounter when accessing the application."
+        },
+        "globalNavigation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The visible label of the navigation element."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "menu",
+                  "breadcrumb",
+                  "tab",
+                  "sidebar",
+                  "footer",
+                  "link"
+                ],
+                "description": "The type of global navigation element."
+              },
+              "targetPageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId this navigation element points to."
+              },
+              "moduleId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The moduleId this navigation element belongs to."
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Display order within its parent navigation structure."
+              },
+              "parentLabel": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The label of the parent navigation item for hierarchical menus."
+              },
+              "icon": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "Icon identifier associated with this navigation element."
+              },
+              "authRequired": {
+                "type": "boolean",
+                "description": "Whether this navigation element requires authentication."
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "Roles required to see this navigation element."
+              }
+            },
+            "required": [
+              "label",
+              "type"
+            ],
+            "description": "A single global navigation element."
+          },
+          "description": "Global navigation structures visible across the application — primary menus, navigation bars, sidebar links, and footer navigation."
+        },
+        "deepLinks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the deep link target."
+              },
+              "urlPattern": {
+                "type": "string",
+                "maxLength": 512,
+                "description": "The URL pattern for this deep link."
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "URL parameters expected by this deep link."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of what this deep link does."
+              }
+            },
+            "required": [
+              "pageId"
+            ],
+            "description": "A direct URL path that navigates to a specific page or state within the application."
+          },
+          "description": "Deep links — direct URL patterns that navigate to specific pages, records, or states within the application."
+        },
+        "crossModuleNavigation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "fromModuleId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The source moduleId."
+              },
+              "toModuleId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The target moduleId."
+              },
+              "viaPageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where the cross-module navigation occurs."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "menu",
+                  "link",
+                  "action",
+                  "workflow"
+                ],
+                "description": "The navigation mechanism."
+              }
+            },
+            "required": [
+              "fromModuleId",
+              "toModuleId"
+            ],
+            "description": "A navigation path from one module to another."
+          },
+          "description": "Cross-module navigation pathways — how users move between different business modules."
+        }
+      },
+      "description": "High-level navigation model of the application. Describes entry points, global navigation structures, deep link patterns, and cross-module navigation pathways."
+    },
+    "authenticationModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "Whether the application requires authentication for access."
+        },
+        "loginMechanisms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "form",
+                  "api",
+                  "basic",
+                  "oauth",
+                  "sso",
+                  "magicLink",
+                  "biometric",
+                  "certificate",
+                  "anonymous"
+                ],
+                "description": "The login mechanism type."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of how this login mechanism works."
+              },
+              "loginPageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the login page for this mechanism."
+              },
+              "formId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The formId of the login form, if form-based."
+              },
+              "providers": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "External identity providers (e.g. Google, Microsoft, GitHub, Okta, Auth0)."
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "description": "A single login mechanism available in the application."
+          },
+          "description": "Login mechanisms available in the application — form-based, OAuth, SSO, magic link, or API token."
+        },
+        "logout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "present": {
+              "type": "boolean",
+              "description": "Whether a logout mechanism was detected."
+            },
+            "behavior": {
+              "type": "string",
+              "enum": [
+                "redirect",
+                "modal",
+                "api",
+                "sessionExpiry"
+              ],
+              "description": "How logout is handled in the application."
+            },
+            "targetPageId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The pageId of the page users are redirected to after logout."
+            },
+            "confirmationRequired": {
+              "type": "boolean",
+              "description": "Whether logout requires user confirmation."
+            }
+          },
+          "description": "Logout behaviour detected in the application."
+        },
+        "sessionHandling": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "cookie",
+                "token",
+                "jwt",
+                "session",
+                "apiKey",
+                "unknown"
+              ],
+              "description": "The mechanism used to maintain user sessions."
+            },
+            "sessionTimeout": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Detected or inferred session timeout in seconds."
+            },
+            "rememberMe": {
+              "type": "boolean",
+              "description": "Whether a 'Remember Me' or persistent session option is available."
+            },
+            "concurrentSessions": {
+              "type": "boolean",
+              "description": "Whether the application appears to support concurrent user sessions."
+            }
+          },
+          "description": "Session management characteristics detected in the application."
+        },
+        "passwordManagement": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "forgotPassword": {
+              "type": "boolean",
+              "description": "Whether a forgot password or password reset flow is available."
+            },
+            "resetPageId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The pageId of the password reset page."
+            },
+            "changePassword": {
+              "type": "boolean",
+              "description": "Whether a change password feature is available in the application."
+            },
+            "changePasswordPageId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The pageId of the change password page."
+            },
+            "passwordRequirements": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "description": "Detected password policy requirements (e.g. 'minLength: 8', 'requiresUppercase', 'requiresSpecialChar')."
+            }
+          },
+          "description": "Password management capabilities detected in the application."
+        },
+        "multiFactorAuthentication": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "Whether MFA is available for the application."
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "totp",
+                  "sms",
+                  "email",
+                  "push",
+                  "biometric",
+                  "hardwareKey",
+                  "backupCode"
+                ],
+                "description": "MFA methods supported."
+              },
+              "description": "Multi-factor authentication methods available."
+            },
+            "enforced": {
+              "type": "boolean",
+              "description": "Whether MFA is enforced for all users or specific roles."
+            },
+            "setupPageId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The pageId of the MFA setup page."
+            }
+          },
+          "description": "Multi-factor authentication configuration detected in the application."
+        },
+        "registration": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "available": {
+              "type": "boolean",
+              "description": "Whether self-registration is available."
+            },
+            "registrationPageId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The pageId of the registration page."
+            },
+            "formId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The formId of the registration form."
+            },
+            "emailVerification": {
+              "type": "boolean",
+              "description": "Whether email verification is required after registration."
+            },
+            "approvalRequired": {
+              "type": "boolean",
+              "description": "Whether an administrator must approve new registrations."
+            }
+          },
+          "description": "User registration capabilities detected in the application."
+        },
+        "discoveryMethod": {
+          "type": "string",
+          "enum": [
+            "loginPage",
+            "apiAnalysis",
+            "headers",
+            "cookies",
+            "configuration",
+            "multiple",
+            "none"
+          ],
+          "description": "How the authentication model was discovered."
+        }
+      },
+      "description": "Authentication model of the application. Captures login mechanisms, logout behaviour, session handling, password management, MFA, and registration capabilities."
+    },
+    "authorizationModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The role name (e.g. Admin, Manager, Editor, Viewer, User)."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of the role's responsibilities."
+              },
+              "hierarchy": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Hierarchical level of the role. Lower values indicate higher privilege."
+              },
+              "parentRole": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "The parent role that this role inherits from."
+              },
+              "permissions": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "description": "Permission identifiers granted to this role."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "description": "A single user role in the application."
+          },
+          "description": "User roles discovered in the application. Roles represent levels of access and responsibility."
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "The permission identifier (e.g. 'user:create', 'order:delete', 'report:export')."
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Description of what this permission grants access to."
+              },
+              "resource": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "The resource or entity this permission applies to."
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "create",
+                  "read",
+                  "update",
+                  "delete",
+                  "approve",
+                  "export",
+                  "import",
+                  "manage",
+                  "access"
+                ],
+                "description": "The action this permission grants."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "description": "A single permission in the application."
+          },
+          "description": "Permissions discovered in the application. Permissions define granular access control for resources and actions."
+        },
+        "protectedPages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId of the protected page."
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "Roles allowed to access this page."
+              },
+              "redirectPageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId users are redirected to if unauthorized."
+              }
+            },
+            "required": [
+              "pageId"
+            ],
+            "description": "A page that requires specific roles or permissions to access."
+          },
+          "description": "Pages that require specific roles or permissions to access."
+        },
+        "protectedActions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where the protected action exists."
+              },
+              "action": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "The action name that is protected."
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "Roles allowed to perform this action."
+              }
+            },
+            "required": [
+              "pageId",
+              "action"
+            ],
+            "description": "A user interface action that requires specific permissions."
+          },
+          "description": "User interface actions that require specific permissions to perform."
+        },
+        "modelType": {
+          "type": "string",
+          "enum": [
+            "roleBased",
+            "permissionBased",
+            "hybrid",
+            "attributeBased",
+            "unknown",
+            "none"
+          ],
+          "description": "The type of authorization model detected."
+        },
+        "discoveryMethod": {
+          "type": "string",
+          "enum": [
+            "uiAnalysis",
+            "apiAnalysis",
+            "urlPatterns",
+            "elementAttributes",
+            "configuration",
+            "multiple",
+            "none"
+          ],
+          "description": "How the authorization model was discovered."
+        }
+      },
+      "description": "Authorization model of the application. Captures roles, permissions, protected pages, protected actions, and the overall authorization architecture."
+    },
+    "sharedComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "componentId",
+        "name"
+      ],
+      "properties": {
+        "componentId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this shared component within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the component (e.g. Header, Footer, Sidebar, DatePicker, FileUpload, ToastNotification, ModalDialog, DataTable)."
+        },
+        "componentType": {
+          "type": "string",
+          "enum": [
+            "header",
+            "footer",
+            "sidebar",
+            "navigation",
+            "search",
+            "pagination",
+            "breadcrumb",
+            "tabs",
+            "accordion",
+            "modal",
+            "drawer",
+            "tooltip",
+            "toast",
+            "popover",
+            "datePicker",
+            "fileUpload",
+            "richTextEditor",
+            "autocomplete",
+            "dropdown",
+            "button",
+            "buttonGroup",
+            "card",
+            "list",
+            "grid",
+            "table",
+            "form",
+            "stepper",
+            "rating",
+            "slider",
+            "progress",
+            "spinner",
+            "skeleton",
+            "chart",
+            "map",
+            "icon",
+            "avatar",
+            "badge",
+            "chip",
+            "alert",
+            "dialog",
+            "menu",
+            "carousel",
+            "videoPlayer",
+            "other"
+          ],
+          "description": "The type of UI component."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what the component renders."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pageReference"
+          },
+          "description": "Pages where this component was detected."
+        },
+        "framework": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The library or framework used to implement this component (e.g. Material UI, Ant Design, Chakra, Headless UI, custom)."
+        },
+        "variantCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct visual or behavioural variants detected for this component."
+        },
+        "interactive": {
+          "type": "boolean",
+          "description": "Whether the component supports user interaction."
+        },
+        "stateful": {
+          "type": "boolean",
+          "description": "Whether the component maintains internal state."
+        },
+        "accessibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "keyboardNavigable": {
+              "type": "boolean",
+              "description": "Whether the component can be navigated using keyboard."
+            },
+            "screenReaderSupported": {
+              "type": "boolean",
+              "description": "Whether the component has appropriate ARIA attributes."
+            },
+            "focusManagement": {
+              "type": "boolean",
+              "description": "Whether the component manages focus appropriately."
+            }
+          },
+          "description": "Accessibility characteristics of this shared component."
+        }
+      },
+      "description": "A reusable UI component or pattern discovered across multiple pages in the application. Shared components represent the application's design system and UI pattern library."
+    },
+    "validationRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ruleId",
+        "type"
+      ],
+      "properties": {
+        "ruleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this validation rule within the inventory."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "required",
+            "regex",
+            "minLength",
+            "maxLength",
+            "minValue",
+            "maxValue",
+            "step",
+            "email",
+            "url",
+            "phone",
+            "date",
+            "dateRange",
+            "range",
+            "pattern",
+            "custom",
+            "crossField",
+            "businessRule",
+            "unique",
+            "fileSize",
+            "fileType",
+            "async"
+          ],
+          "description": "The category of validation rule."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Human-readable description of what this rule validates."
+        },
+        "constraint": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "The regex pattern for pattern validations."
+            },
+            "minLength": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum length constraint."
+            },
+            "maxLength": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum length constraint."
+            },
+            "minValue": {
+              "type": "number",
+              "description": "Minimum value constraint."
+            },
+            "maxValue": {
+              "type": "number",
+              "description": "Maximum value constraint."
+            },
+            "step": {
+              "type": "number",
+              "description": "Step increment constraint."
+            },
+            "allowedValues": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "description": "Allowed values for enum-like validations."
+            },
+            "expression": {
+              "type": "string",
+              "maxLength": 2000,
+              "description": "Business rule expression or custom validation logic description."
+            },
+            "fileMaxSize": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum file size in bytes."
+            },
+            "allowedMimeTypes": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "description": "Allowed MIME types for file upload validations."
+            }
+          },
+          "description": "The specific constraint parameters for the validation rule."
+        },
+        "errorMessage": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "The error message displayed when this validation fails."
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "info"
+          ],
+          "description": "The severity level of the validation failure."
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "field",
+            "form",
+            "crossForm",
+            "page",
+            "global"
+          ],
+          "description": "The scope within which this validation rule applies."
+        },
+        "forms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/formReference"
+          },
+          "description": "Forms where this validation rule was detected."
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "formId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The formId from dom-inventory.json."
+              },
+              "fieldName": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The name attribute of the form field."
+              },
+              "fieldLabel": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The label of the form field."
+              }
+            },
+            "required": [
+              "fieldName"
+            ],
+            "description": "A form field to which this validation rule applies."
+          },
+          "description": "Form fields to which this validation rule applies."
+        }
+      },
+      "description": "A single validation rule discovered in the application. Rules are aggregated from form controls, API analysis, and business logic patterns. Each rule captures a distinct validation constraint and the forms/fields it applies to."
+    },
+    "businessCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilityId",
+        "name"
+      ],
+      "properties": {
+        "capabilityId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this capability within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Human-readable name of the business capability (e.g. User Management, Reporting, Billing, Inventory Management, Workflow Automation, Document Management)."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of the business capability and the value it delivers."
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Module IDs of modules that contribute to this capability."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Feature IDs of features that implement this capability."
+        },
+        "workflows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Workflow IDs of end-to-end workflows enabled by this capability."
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Entity IDs of business entities managed by this capability."
+        },
+        "criticality": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "Business criticality of the capability."
+        },
+        "integrationPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Integration point IDs that support this capability."
+        }
+      },
+      "description": "A high-level business capability delivered by the application. Capabilities represent significant areas of business functionality that span multiple modules, features, and workflows."
+    },
+    "integrationPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "integrationId",
+        "name",
+        "type"
+      ],
+      "properties": {
+        "integrationId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this integration point within the inventory."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Name of the integration (e.g. Payment Gateway, Maps Service, Email Service, Analytics)."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "restApi",
+            "graphql",
+            "soap",
+            "webSocket",
+            "webhook",
+            "sso",
+            "oauth",
+            "paymentGateway",
+            "maps",
+            "analytics",
+            "storage",
+            "email",
+            "sms",
+            "push",
+            "cdn",
+            "monitoring",
+            "logging",
+            "search",
+            "ai",
+            "crm",
+            "erp",
+            "custom"
+          ],
+          "description": "The type of integration."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Description of what this integration does."
+        },
+        "provider": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The external provider or service name (e.g. Stripe, Google Maps, SendGrid, Mixpanel, AWS S3, Algolia)."
+        },
+        "endpointPatterns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "description": "URL patterns or endpoint paths associated with this integration."
+        },
+        "authenticationType": {
+          "type": "string",
+          "enum": [
+            "apiKey",
+            "oauth",
+            "basic",
+            "jwt",
+            "mutualTls",
+            "none",
+            "unknown"
+          ],
+          "description": "The authentication method used for this integration."
+        },
+        "pages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pageReference"
+          },
+          "description": "Pages that reference or interact with this integration."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Feature IDs of features that depend on this integration."
+        },
+        "criticality": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low"
+          ],
+          "description": "Business criticality of this integration."
+        },
+        "discoveryMethod": {
+          "type": "string",
+          "enum": [
+            "networkAnalysis",
+            "scriptAnalysis",
+            "domAnalysis",
+            "headerAnalysis",
+            "configuration",
+            "multiple",
+            "unknown"
+          ],
+          "description": "How the integration was discovered."
+        }
+      },
+      "description": "An external integration point discovered during application analysis. Captures third-party services, APIs, and external systems the application depends on."
+    },
+    "riskIndicator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "indicatorId",
+        "type",
+        "severity"
+      ],
+      "properties": {
+        "indicatorId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this risk indicator within the inventory."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "largeForm",
+            "complexTable",
+            "dynamicContent",
+            "infiniteScroll",
+            "nestedDialogs",
+            "heavyJavaScript",
+            "fileUpload",
+            "authentication",
+            "authorization",
+            "crossModuleNavigation",
+            "externalIntegration",
+            "multiStepWorkflow",
+            "conditionalLogic",
+            "realTimeUpdates",
+            "dataEntry",
+            "financialCalculation",
+            "sensitiveData",
+            "thirdPartyDependency",
+            "accessibility",
+            "responsiveLayout"
+          ],
+          "description": "The category of risk indicator."
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "critical",
+            "high",
+            "medium",
+            "low",
+            "info"
+          ],
+          "description": "The severity level of this risk indicator."
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of the risk and why it requires additional testing attention."
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where the risk was identified."
+              },
+              "moduleId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The moduleId where the risk was identified."
+              },
+              "featureId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The featureId where the risk was identified."
+              },
+              "details": {
+                "type": "string",
+                "maxLength": 500,
+                "description": "Specific details about this risk at this location."
+              }
+            },
+            "description": "A specific location in the application where this risk was identified."
+          },
+          "description": "Specific locations in the application where this risk was identified."
+        },
+        "impact": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Description of the potential impact if this area is not adequately tested."
+        },
+        "suggestedApproach": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Suggested testing approach for this risk area (e.g. boundary testing, negative testing, performance testing, accessibility audit)."
+        }
+      },
+      "description": "A risk indicator identifying an area of the application that requires additional testing attention. Risk indicators flag complex, sensitive, or high-impact regions."
+    },
+    "coverageSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "totalModules": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of business modules discovered."
+        },
+        "totalFeatures": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of user-facing features discovered."
+        },
+        "totalWorkflows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of end-to-end workflows identified."
+        },
+        "totalEntities": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of business entities identified."
+        },
+        "totalPages": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of business pages modelled."
+        },
+        "totalSharedComponents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of reusable shared components identified."
+        },
+        "totalValidationRules": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of validation rules aggregated."
+        },
+        "totalIntegrationPoints": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of external integration points detected."
+        },
+        "totalBusinessCapabilities": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of high-level business capabilities identified."
+        },
+        "totalRiskIndicators": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of risk indicators flagged."
+        },
+        "criticalRiskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of risk indicators at critical severity."
+        },
+        "highRiskCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of risk indicators at high severity."
+        },
+        "coverageConfidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Overall confidence score for the completeness and accuracy of the application inventory. Accounts for the proportion of DOM discoveries successfully aggregated into business concepts."
+        },
+        "modulesWithFeatures": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of modules that have at least one feature assigned."
+        },
+        "pagesWithWorkflows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of pages that are part of at least one workflow."
+        },
+        "entitiesWithCRUD": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of entities that have at least one CRUD operation identified."
+        },
+        "estimatedTestScenarios": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated number of test scenarios required for full coverage, based on workflow branches, decision points, and risk indicators."
+        }
+      },
+      "description": "Aggregated coverage and confidence metrics for the application inventory. Provides at-a-glance indicators for inventory completeness and readiness for test design."
+    },
+    "inventoryMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aggregationTime",
+        "aggregatorVersion",
+        "sourceContracts"
+      ],
+      "properties": {
+        "aggregationTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the aggregation completed."
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total aggregation duration in milliseconds."
+        },
+        "aggregatorVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Version identifier of the Inventory Aggregator agent that produced this output."
+        },
+        "sourceContracts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "crawlPackage": {
+              "type": "boolean",
+              "description": "Whether crawl-package.json was used as a source."
+            },
+            "domInventory": {
+              "type": "boolean",
+              "description": "Whether dom-inventory.json was used as a source."
+            },
+            "crawlPackageRef": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Reference to the source crawl-package.json file or identifier."
+            },
+            "domInventoryRef": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Reference to the source dom-inventory.json file or identifier."
+            }
+          },
+          "description": "Records which source contracts were consumed to produce this inventory."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Overall confidence score for the aggregation. Ranges from 0.0 to 1.0. Factors include source contract completeness, heuristic reliability, and conflict resolution."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/aggregationEvent"
+          },
+          "description": "Non-fatal warnings encountered during aggregation. Warnings indicate potential quality issues or ambiguities in the inventory."
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/aggregationEvent"
+          },
+          "description": "Fatal or unrecoverable errors encountered during aggregation. Errors caused one or more sections of the inventory to be incomplete."
+        },
+        "inferenceStrategies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": "Strategies used to infer business concepts from UI discoveries (e.g. urlPatternAnalysis, formGrouping, navigationClustering, headingAnalysis, apiAnalysis)."
+        },
+        "totalInputElements": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of DOM elements processed from the source contracts."
+        },
+        "totalOutputConcepts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of business concepts produced (modules + features + workflows + entities + capabilities + components + validations + integrations + risks)."
+        }
+      },
+      "description": "Metadata about the aggregation process — when it ran, which source contracts were consumed, the aggregator version, overall confidence, and any warnings or errors."
+    },
+    "aggregationEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Machine-readable event code. Examples: MODULE_INFERENCE_FAILED, FEATURE_AMBIGUOUS, WORKFLOW_INCOMPLETE, ENTITY_CONFLICT, PAGE_UNMATCHED."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Human-readable description of the event."
+        },
+        "moduleId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The moduleId associated with this event, if applicable."
+        },
+        "featureId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The featureId associated with this event, if applicable."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId associated with this event, if applicable."
+        },
+        "workflowId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The workflowId associated with this event, if applicable."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the event occurred."
+        }
+      },
+      "description": "A single warning or error event recorded during inventory aggregation."
+    },
+    "pageReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageId"
+      ],
+      "properties": {
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId from dom-inventory.json."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The business name of the page for quick identification."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The URL of the page."
+        }
+      },
+      "description": "A lightweight reference to a business page model. References the pageId from dom-inventory.json for correlation."
+    },
+    "formReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formId"
+      ],
+      "properties": {
+        "formId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The formId from dom-inventory.json."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The name of the form for quick identification."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId where this form resides."
+        },
+        "entityName": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The business entity this form manages, if identified."
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "create",
+            "edit",
+            "search",
+            "login",
+            "register",
+            "filter",
+            "settings",
+            "upload",
+            "feedback",
+            "other"
+          ],
+          "description": "The business purpose of the form."
+        }
+      },
+      "description": "A lightweight reference to a form from dom-inventory.json. Enriches the raw formId with business context."
+    },
+    "tableReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tableId"
+      ],
+      "properties": {
+        "tableId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The tableId from dom-inventory.json."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The business name of the table for quick identification."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId where this table resides."
+        },
+        "entityName": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The business entity this table displays, if identified."
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "list",
+            "searchResults",
+            "report",
+            "dashboard",
+            "management",
+            "history",
+            "audit",
+            "other"
+          ],
+          "description": "The business purpose of the table."
+        }
+      },
+      "description": "A lightweight reference to a table from dom-inventory.json. Enriches the raw tableId with business context."
+    },
+    "dialogReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dialogId"
+      ],
+      "properties": {
+        "dialogId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The dialogId from dom-inventory.json."
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The dialog type for quick identification."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The dialog label or title."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId where this dialog resides."
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "confirmation",
+            "notification",
+            "form",
+            "detail",
+            "selection",
+            "upload",
+            "settings",
+            "error",
+            "info",
+            "other"
+          ],
+          "description": "The business purpose of the dialog."
+        }
+      },
+      "description": "A lightweight reference to a dialog from dom-inventory.json. Enriches the raw dialogId with business context."
+    }
+  }
+}

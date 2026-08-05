@@ -1,0 +1,11 @@
+# Contracts Directory
+
+This directory contains JSON Schema contracts for data validation.
+
+Contracts are referenced in data models via `$schema` or `contract` field.
+
+See `app/validation/contract_validator.py` for usage.
+
+Existing contracts are in:
+- `docs/contracts/` - Source contract definitions
+- This directory - Runtime contract location (symlink or copy recommended)

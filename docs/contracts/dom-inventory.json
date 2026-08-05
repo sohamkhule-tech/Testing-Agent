@@ -1,0 +1,3358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.agentic-testing-platform.io/contracts/v1/dom-inventory.json",
+  "title": "DOM + Runtime Inventory",
+  "description": "Canonical machine-readable inventory of everything discovered from the application's UI by the DOM + Runtime Discovery Agent. Contains parsed HTML structure, DOM inspection results, form and table analysis, navigation topology, interactive elements, dialog and iframe inventories, and accessibility metadata. Consumed by the Inventory Aggregator for downstream test generation.",
+  "version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId",
+    "requestId",
+    "discoveryMetadata",
+    "pages",
+    "elements"
+  ],
+  "properties": {
+    "runId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Globally unique identifier for the test execution run. Must match the runId from the originating test-run-request.json and crawl-package.json."
+    },
+    "requestId": {
+      "$ref": "#/$defs/uuid",
+      "description": "Correlation identifier from the originating HTTP request. Must match the requestId from the originating test-run-request.json and crawl-package.json."
+    },
+    "discoveryMetadata": {
+      "$ref": "#/$defs/discoveryMetadata",
+      "description": "Metadata about the discovery process itself — when it ran, which parsers and DOM engines were used, confidence scores, and any warnings or errors encountered."
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pageInventory"
+      },
+      "minItems": 0,
+      "description": "Inventory of every page that was successfully analysed. Each record contains the discovered page-level metadata: URL, title, type classification, layout structure, language, framework detection, and render mode."
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/elementInventory"
+      },
+      "minItems": 0,
+      "description": "Flat inventory of every DOM element discovered across all pages. Elements are normalised into a single flat list and referenced by elementId from forms, tables, navigation, dialogs, and child element arrays. This normalisation ensures a single source of truth for every node."
+    },
+    "forms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/formInventory"
+      },
+      "minItems": 0,
+      "description": "Independent inventory of every HTML form element discovered. Each form record references its controls and submit button by elementId from the elements array. Forms are not embedded inside page records to allow cross-page form analysis."
+    },
+    "tables": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/tableInventory"
+      },
+      "minItems": 0,
+      "description": "Independent inventory of every HTML table element discovered. Each table record references its header cells and row cells by elementId."
+    },
+    "navigation": {
+      "$ref": "#/$defs/navigationInventory",
+      "description": "Consolidated navigation inventory across all pages. Captures menus, breadcrumbs, tabs, sidebars, footers, pagination controls, and categorises links as internal or external."
+    },
+    "dialogs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/dialogInventory"
+      },
+      "minItems": 0,
+      "description": "Inventory of all dialog-like elements discovered: modal dialogs, drawers, popups, alerts, toast notifications, tooltips, and flyouts."
+    },
+    "iframes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/iframeInventory"
+      },
+      "minItems": 0,
+      "description": "Inventory of every iframe element discovered across all pages."
+    },
+    "accessibility": {
+      "$ref": "#/$defs/accessibilityInventory",
+      "description": "Consolidated accessibility analysis across all pages. Captures ARIA roles and labels, heading hierarchy, landmark regions, tab order, keyboard support assessments, contrast issues, and alt-text gaps."
+    },
+    "layout": {
+      "$ref": "#/$defs/layoutInventory",
+      "description": "Layout-level metadata about the application's rendering environment: viewport dimensions, responsive breakpoints, grid system, CSS framework, and responsive behaviour flags."
+    },
+    "pageStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$": {
+          "$ref": "#/$defs/pageStats"
+        }
+      },
+      "description": "Per-page statistics keyed by pageId. Provides at-a-glance quality indicators for each page — element counts, form and table counts, accessibility issue counts, and discovery completeness."
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "A universally unique identifier in standard 8-4-4-4-12 hexadecimal format."
+    },
+    "discoveryMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "discoveryTime",
+        "status"
+      ],
+      "properties": {
+        "discoveryTime": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when DOM discovery completed."
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total discovery duration in milliseconds. From start of DOM parsing to completion of accessibility analysis."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "partial",
+            "timeout",
+            "error"
+          ],
+          "description": "Final state of the discovery process."
+        },
+        "domVersion": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The DOM specification version detected or used during parsing."
+        },
+        "parserVersion": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Version identifier of the HTML/DOM parser used."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Overall confidence score for the discovery output. Ranges from 0.0 to 1.0."
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/discoveryWarning"
+          },
+          "description": "Non-fatal warnings encountered during discovery."
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/discoveryWarning"
+          },
+          "description": "Fatal or unrecoverable errors encountered during discovery."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "liveBrowser",
+            "cachedHtml",
+            "snapshot"
+          ],
+          "default": "liveBrowser",
+          "description": "The source from which DOM analysis was performed."
+        }
+      },
+      "description": "Metadata about the discovery process execution."
+    },
+    "discoveryWarning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Machine-readable warning code. Examples: SHADOW_DOM_BOUNDARY, DYNAMIC_CONTENT_UNRESOLVED."
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Human-readable description of the warning."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId where this warning occurred, if applicable."
+        },
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the specific element involved, if applicable."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the warning was recorded."
+        }
+      },
+      "description": "A single warning or error recorded during DOM discovery."
+    },
+    "pageInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pageId",
+        "url"
+      ],
+      "properties": {
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this page. Must match the pageId from crawl-package.json."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "The full URL of the page as resolved during discovery."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The resolved document title."
+        },
+        "pageType": {
+          "type": "string",
+          "enum": [
+            "standard",
+            "landing",
+            "dashboard",
+            "form",
+            "search",
+            "error",
+            "login",
+            "register",
+            "profile",
+            "settings",
+            "checkout",
+            "article",
+            "listing",
+            "category",
+            "portal",
+            "documentation",
+            "modal",
+            "iframe",
+            "unknown"
+          ],
+          "description": "Classification of the page type based on URL patterns, structural analysis, and content heuristics."
+        },
+        "layout": {
+          "type": "string",
+          "enum": [
+            "singleColumn",
+            "multiColumn",
+            "sidebar",
+            "headerFooter",
+            "applicationShell",
+            "grid",
+            "fluid",
+            "fixed",
+            "card",
+            "unknown"
+          ],
+          "description": "Detected layout structure of the page."
+        },
+        "language": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+          "maxLength": 10,
+          "description": "The detected language of the page content in BCP 47 format."
+        },
+        "framework": {
+          "$ref": "#/$defs/frameworkDetection",
+          "description": "Frontend framework detection results."
+        },
+        "renderMode": {
+          "type": "string",
+          "enum": [
+            "csr",
+            "ssr",
+            "ssg",
+            "isr",
+            "hybrid",
+            "unknown"
+          ],
+          "description": "Detected rendering mode: csr, ssr, ssg, isr, hybrid."
+        },
+        "viewport": {
+          "$ref": "#/$defs/viewportInfo",
+          "description": "Viewport dimensions and device pixel ratio at discovery time."
+        },
+        "discoveredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when this page was analysed."
+        },
+        "domContentLoaded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "DOM Content Loaded event time in milliseconds."
+        },
+        "fullyLoaded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Fully loaded time in milliseconds from navigation start."
+        },
+        "elementIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Ordered list of elementIds in DOM tree order for this page."
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "type": "string",
+              "maxLength": 2048,
+              "description": "Meta description content."
+            },
+            "keywords": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "description": "Meta keywords."
+            },
+            "canonicalUrl": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2048,
+              "description": "The canonical URL."
+            },
+            "robots": {
+              "type": "string",
+              "maxLength": 256,
+              "description": "Robots meta tag content."
+            },
+            "themeColor": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "Theme colour meta tag value."
+            }
+          },
+          "description": "Page-level metadata from HTML meta tags."
+        }
+      },
+      "description": "Discovered metadata for a single page."
+    },
+    "frameworkDetection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": [
+            "react",
+            "nextjs",
+            "vue",
+            "nuxt",
+            "angular",
+            "svelte",
+            "sveltekit",
+            "solid",
+            "solidstart",
+            "astro",
+            "remix",
+            "gatsby",
+            "lit",
+            "htmx",
+            "alpine",
+            "jquery",
+            "stimulus",
+            "turbo",
+            "vanilla",
+            "unknown"
+          ],
+          "description": "The primary frontend framework detected on the page."
+        },
+        "version": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Detected version string of the primary framework."
+        },
+        "detectionMethod": {
+          "type": "string",
+          "enum": [
+            "globalObject",
+            "domMarker",
+            "bundleAnalysis",
+            "attributePattern",
+            "scriptAnalysis",
+            "multiple",
+            "unknown"
+          ],
+          "description": "The method used to detect the framework."
+        },
+        "libraries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "Name of the detected library."
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 32,
+                "description": "Detected version of the library."
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "description": "A single detected library."
+          },
+          "description": "Additional libraries detected beyond the primary framework."
+        },
+        "metaFrameworks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": "Meta-frameworks detected on top of the base framework."
+        }
+      },
+      "description": "Frontend framework and library detection results."
+    },
+    "viewportInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Viewport width in CSS pixels."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Viewport height in CSS pixels."
+        },
+        "devicePixelRatio": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 5.0,
+          "description": "Device pixel ratio of the viewport."
+        },
+        "scrollWidth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total scroll width in CSS pixels."
+        },
+        "scrollHeight": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total scroll height in CSS pixels."
+        }
+      },
+      "description": "Viewport dimensions and pixel metrics."
+    },
+    "elementInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elementId",
+        "pageId",
+        "tag"
+      ],
+      "properties": {
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this element."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId this element belongs to."
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z][a-zA-Z0-9-]*$",
+          "description": "The HTML tag name in lowercase."
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The explicit or implicit ARIA role."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "The visible text content of the element."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The value of the name attribute."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The resolved accessible label for the element."
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The value of the placeholder attribute."
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "The current value of the element."
+        },
+        "selectorCandidates": {
+          "$ref": "#/$defs/selectorCandidates",
+          "description": "Multiple selector strategies for locating this element."
+        },
+        "aria": {
+          "$ref": "#/$defs/ariaAttributes",
+          "description": "ARIA and accessibility attributes detected on the element."
+        },
+        "visibility": {
+          "$ref": "#/$defs/visibilityState",
+          "description": "Computed visibility state at discovery time."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the element is enabled and interactive."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether the element is required."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Whether the element is read-only."
+        },
+        "coordinates": {
+          "$ref": "#/$defs/coordinates",
+          "description": "Computed bounding client rectangle."
+        },
+        "inputType": {
+          "type": "string",
+          "enum": [
+            "text",
+            "email",
+            "password",
+            "number",
+            "tel",
+            "url",
+            "search",
+            "date",
+            "time",
+            "datetime-local",
+            "month",
+            "week",
+            "color",
+            "range",
+            "file",
+            "checkbox",
+            "radio",
+            "hidden",
+            "submit",
+            "button",
+            "reset",
+            "image",
+            "select-one",
+            "select-multiple",
+            "textarea",
+            "datalist",
+            "output",
+            "unknown"
+          ],
+          "description": "The specific input type for form elements."
+        },
+        "parentElement": {
+          "$ref": "#/$defs/elementReference",
+          "description": "Reference to the direct parent DOM element."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/elementReference"
+          },
+          "description": "Ordered references to direct child elements."
+        },
+        "attributes": {
+          "$ref": "#/$defs/elementAttributes",
+          "description": "Additional element attributes."
+        },
+        "state": {
+          "$ref": "#/$defs/elementState",
+          "description": "Dynamic state at discovery time."
+        },
+        "validation": {
+          "$ref": "#/$defs/inputValidation",
+          "description": "Validation constraints for form-associated elements."
+        },
+        "cssStyles": {
+          "$ref": "#/$defs/cssStyleSnapshot",
+          "description": "Snapshot of computed CSS styles."
+        },
+        "discoveredAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when this element was discovered."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence score for element discovery."
+        }
+      },
+      "description": "A single DOM element discovered during analysis."
+    },
+    "selectorCandidates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "css": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "A unique CSS selector scoped to the page."
+        },
+        "xpath": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "A unique XPath expression scoped to the page."
+        },
+        "testId": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "A data-testid attribute value, if present."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Text-based locator using visible text."
+        },
+        "ariaLabel": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The resolved accessible label for getByRole locators."
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The resolved ARIA role for getByRole locators."
+        },
+        "nthChild": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Positional selector using nth-child."
+        }
+      },
+      "description": "Multiple selector strategies for reliably locating an element."
+    },
+    "ariaAttributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The explicit role attribute value."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The aria-label attribute value."
+        },
+        "describedby": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-describedby attribute value."
+        },
+        "labelledby": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-labelledby attribute value."
+        },
+        "expanded": {
+          "type": "boolean",
+          "description": "The aria-expanded state."
+        },
+        "pressed": {
+          "type": "boolean",
+          "description": "The aria-pressed state for toggle buttons."
+        },
+        "current": {
+          "type": "string",
+          "enum": [
+            "page",
+            "step",
+            "location",
+            "date",
+            "time",
+            "true",
+            "false"
+          ],
+          "description": "The aria-current value."
+        },
+        "invalid": {
+          "type": "string",
+          "enum": [
+            "true",
+            "false",
+            "grammar",
+            "spelling"
+          ],
+          "description": "The aria-invalid state."
+        },
+        "modal": {
+          "type": "boolean",
+          "description": "The aria-modal state."
+        },
+        "hasPopup": {
+          "type": "string",
+          "enum": [
+            "true",
+            "false",
+            "menu",
+            "listbox",
+            "tree",
+            "grid",
+            "dialog"
+          ],
+          "description": "The aria-haspopup value."
+        },
+        "atomic": {
+          "type": "boolean",
+          "description": "The aria-atomic value for live regions."
+        },
+        "live": {
+          "type": "string",
+          "enum": [
+            "off",
+            "polite",
+            "assertive"
+          ],
+          "description": "The aria-live politeness level."
+        },
+        "relevant": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The aria-relevant value."
+        },
+        "busy": {
+          "type": "boolean",
+          "description": "The aria-busy state."
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "The aria-hidden state."
+        },
+        "keyshortcuts": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The aria-keyshortcuts value."
+        },
+        "roledescription": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The aria-roledescription value."
+        },
+        "valuetext": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The aria-valuetext value."
+        },
+        "valuemin": {
+          "type": "number",
+          "description": "The aria-valuemin value."
+        },
+        "valuemax": {
+          "type": "number",
+          "description": "The aria-valuemax value."
+        },
+        "valuenow": {
+          "type": "number",
+          "description": "The aria-valuenow value."
+        },
+        "colcount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The aria-colcount value."
+        },
+        "colindex": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The aria-colindex value."
+        },
+        "colspan": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The aria-colspan value."
+        },
+        "rowcount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The aria-rowcount value."
+        },
+        "rowindex": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The aria-rowindex value."
+        },
+        "rowspan": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The aria-rowspan value."
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "description": "The aria-level value."
+        },
+        "posinset": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The aria-posinset value."
+        },
+        "setsize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The aria-setsize value."
+        },
+        "sort": {
+          "type": "string",
+          "enum": [
+            "ascending",
+            "descending",
+            "none",
+            "other"
+          ],
+          "description": "The aria-sort value."
+        },
+        "orientations": {
+          "type": "string",
+          "enum": [
+            "horizontal",
+            "vertical",
+            "undefined"
+          ],
+          "description": "The aria-orientation value."
+        },
+        "autocomplete": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "list",
+            "both",
+            "none"
+          ],
+          "description": "The aria-autocomplete value."
+        },
+        "multiline": {
+          "type": "boolean",
+          "description": "The aria-multiline value."
+        },
+        "multiselectable": {
+          "type": "boolean",
+          "description": "The aria-multiselectable value."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "The aria-readonly value."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "The aria-required value."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "The aria-disabled value."
+        },
+        "errormessage": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-errormessage value."
+        },
+        "activedescendant": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The aria-activedescendant value."
+        },
+        "controls": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-controls value."
+        },
+        "owns": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-owns value."
+        },
+        "flowto": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-flowto value."
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The aria-details value."
+        }
+      },
+      "description": "Comprehensive set of ARIA and accessibility attributes."
+    },
+    "visibilityState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "visible": {
+          "type": "boolean",
+          "description": "Whether the element is visually visible."
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "The computed opacity."
+        },
+        "display": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The computed display CSS property."
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "visible",
+            "hidden",
+            "collapse"
+          ],
+          "description": "The computed visibility CSS property."
+        },
+        "inViewport": {
+          "type": "boolean",
+          "description": "Whether the element intersects with the viewport."
+        },
+        "offscreen": {
+          "type": "boolean",
+          "description": "Whether the element is positioned off-screen."
+        },
+        "clipped": {
+          "type": "boolean",
+          "description": "Whether the element is clipped by overflow or clip-path."
+        },
+        "covered": {
+          "type": "boolean",
+          "description": "Whether the element is covered by another element."
+        }
+      },
+      "description": "Computed visibility state of the element."
+    },
+    "coordinates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "number",
+          "description": "X-coordinate of the left edge relative to viewport."
+        },
+        "y": {
+          "type": "number",
+          "description": "Y-coordinate of the top edge relative to viewport."
+        },
+        "width": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Width in CSS pixels."
+        },
+        "height": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Height in CSS pixels."
+        },
+        "top": {
+          "type": "number",
+          "description": "Distance from viewport top to element top."
+        },
+        "left": {
+          "type": "number",
+          "description": "Distance from viewport left to element left."
+        },
+        "right": {
+          "type": "number",
+          "description": "Distance from viewport left to element right."
+        },
+        "bottom": {
+          "type": "number",
+          "description": "Distance from viewport top to element bottom."
+        }
+      },
+      "description": "Computed bounding client rectangle relative to viewport."
+    },
+    "elementReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elementId"
+      ],
+      "properties": {
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The referenced element's elementId."
+        },
+        "tag": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The tag name for quick identification."
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The ARIA role for quick identification."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Short text preview of the element's content."
+        }
+      },
+      "description": "Lightweight reference to an element in the elements array."
+    },
+    "elementAttributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The HTML id attribute."
+        },
+        "class": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "The HTML class attribute."
+        },
+        "classList": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "description": "Individual CSS class names."
+        },
+        "style": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "The inline style attribute."
+        },
+        "href": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The href attribute for anchor elements."
+        },
+        "src": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The src attribute for img, script, iframe elements."
+        },
+        "alt": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The alt attribute for img elements."
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The title attribute."
+        },
+        "target": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The target attribute."
+        },
+        "rel": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The rel attribute."
+        },
+        "accept": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The accept attribute for file inputs."
+        },
+        "accesskey": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "The accesskey attribute."
+        },
+        "autocomplete": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The autocomplete attribute."
+        },
+        "autofocus": {
+          "type": "boolean",
+          "description": "Whether the autofocus attribute is present."
+        },
+        "contenteditable": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "The contenteditable attribute."
+        },
+        "dir": {
+          "type": "string",
+          "enum": ["ltr", "rtl", "auto"],
+          "description": "The dir attribute."
+        },
+        "draggable": {
+          "type": "boolean",
+          "description": "Whether the draggable attribute is set."
+        },
+        "encType": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The enctype attribute for forms."
+        },
+        "for": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The for attribute for label elements."
+        },
+        "formAction": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The formaction attribute for submit buttons."
+        },
+        "formMethod": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "The formmethod attribute."
+        },
+        "formNoValidate": {
+          "type": "boolean",
+          "description": "Whether formnovalidate is present."
+        },
+        "headers": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "The headers attribute for table cells."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The height attribute."
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The width attribute."
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Whether the hidden attribute is present."
+        },
+        "lang": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "The lang attribute."
+        },
+        "list": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The list attribute referencing a datalist."
+        },
+        "loading": {
+          "type": "string",
+          "enum": ["lazy", "eager"],
+          "description": "The loading attribute."
+        },
+        "max": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The max attribute."
+        },
+        "maxlength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The maxlength attribute."
+        },
+        "min": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The min attribute."
+        },
+        "minlength": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The minlength attribute."
+        },
+        "multiple": {
+          "type": "boolean",
+          "description": "Whether the multiple attribute is present."
+        },
+        "muted": {
+          "type": "boolean",
+          "description": "Whether the muted attribute is present."
+        },
+        "novalidate": {
+          "type": "boolean",
+          "description": "Whether novalidate is present on a form."
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The pattern attribute for validation."
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The placeholder attribute."
+        },
+        "popover": {
+          "type": "string",
+          "enum": ["auto", "manual", ""],
+          "description": "The popover attribute."
+        },
+        "poster": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The poster attribute for video elements."
+        },
+        "preload": {
+          "type": "string",
+          "enum": ["none", "metadata", "auto"],
+          "description": "The preload attribute."
+        },
+        "referrerpolicy": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The referrerpolicy attribute."
+        },
+        "sandbox": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "The sandbox attribute for iframes."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["row", "col", "rowgroup", "colgroup", "auto"],
+          "description": "The scope attribute for table header cells."
+        },
+        "selected": {
+          "type": "boolean",
+          "description": "Whether the selected attribute is present."
+        },
+        "sizes": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "The sizes attribute."
+        },
+        "slot": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The slot attribute for web components."
+        },
+        "spellcheck": {
+          "type": "boolean",
+          "description": "Whether spellcheck is enabled."
+        },
+        "srcset": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "The srcset attribute."
+        },
+        "srcdoc": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "The srcdoc attribute for inline iframe content."
+        },
+        "step": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The step attribute."
+        },
+        "tabindex": {
+          "type": "integer",
+          "description": "The tabindex attribute."
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The type attribute."
+        },
+        "usemap": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The usemap attribute."
+        },
+        "wrap": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "The wrap attribute for textarea."
+        },
+        "dataAttributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxProperties": 100,
+          "description": "All data-* attributes as key-value pairs."
+        }
+      },
+      "description": "Comprehensive set of HTML element attributes."
+    },
+    "elementState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "checked": {
+          "type": "boolean",
+          "description": "Current checked state for checkbox/radio inputs."
+        },
+        "selected": {
+          "type": "boolean",
+          "description": "Current selected state for option elements."
+        },
+        "expanded": {
+          "type": "boolean",
+          "description": "Current expanded state."
+        },
+        "pressed": {
+          "type": "boolean",
+          "description": "Current pressed state for toggle buttons."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Current disabled state."
+        },
+        "invalid": {
+          "type": "boolean",
+          "description": "Current validation state."
+        },
+        "focused": {
+          "type": "boolean",
+          "description": "Whether the element currently has focus."
+        },
+        "indeterminate": {
+          "type": "boolean",
+          "description": "Whether a checkbox is in indeterminate state."
+        },
+        "modified": {
+          "type": "boolean",
+          "description": "Whether the value has been modified from default."
+        },
+        "dirty": {
+          "type": "boolean",
+          "description": "Whether the value has been changed by the user."
+        }
+      },
+      "description": "Dynamic state of the element at discovery time."
+    },
+    "inputValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "Whether the element is required."
+        },
+        "pattern": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The regex pattern for validation."
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 524288,
+          "description": "Minimum length constraint."
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 524288,
+          "description": "Maximum length constraint."
+        },
+        "min": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Minimum value constraint."
+        },
+        "max": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Maximum value constraint."
+        },
+        "step": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Step increment constraint."
+        },
+        "multiple": {
+          "type": "boolean",
+          "description": "Whether multiple values are allowed."
+        }
+      },
+      "description": "Validation constraints for form-associated elements."
+    },
+    "cssStyleSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "position": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed position CSS property."
+        },
+        "display": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed display CSS property."
+        },
+        "flexDirection": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Computed flex-direction."
+        },
+        "flexWrap": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Computed flex-wrap."
+        },
+        "justifyContent": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed justify-content."
+        },
+        "alignItems": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed align-items."
+        },
+        "gridTemplateColumns": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Computed grid-template-columns."
+        },
+        "gridTemplateRows": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Computed grid-template-rows."
+        },
+        "zIndex": {
+          "type": "integer",
+          "description": "Computed z-index."
+        },
+        "overflow": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed overflow."
+        },
+        "boxSizing": {
+          "type": "string",
+          "enum": ["content-box", "border-box"],
+          "description": "Computed box-sizing."
+        },
+        "marginTop": {
+          "type": "number",
+          "description": "Computed margin-top."
+        },
+        "marginRight": {
+          "type": "number",
+          "description": "Computed margin-right."
+        },
+        "marginBottom": {
+          "type": "number",
+          "description": "Computed margin-bottom."
+        },
+        "marginLeft": {
+          "type": "number",
+          "description": "Computed margin-left."
+        },
+        "paddingTop": {
+          "type": "number",
+          "description": "Computed padding-top."
+        },
+        "paddingRight": {
+          "type": "number",
+          "description": "Computed padding-right."
+        },
+        "paddingBottom": {
+          "type": "number",
+          "description": "Computed padding-bottom."
+        },
+        "paddingLeft": {
+          "type": "number",
+          "description": "Computed padding-left."
+        },
+        "fontSize": {
+          "type": "number",
+          "description": "Computed font-size."
+        },
+        "fontWeight": {
+          "type": "number",
+          "description": "Computed font-weight."
+        },
+        "lineHeight": {
+          "type": "number",
+          "description": "Computed line-height."
+        },
+        "textAlign": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Computed text-align."
+        },
+        "color": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed color as hex."
+        },
+        "backgroundColor": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed background-color as hex."
+        },
+        "borderRadius": {
+          "type": "number",
+          "description": "Computed border-radius."
+        },
+        "pointerEvents": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Computed pointer-events."
+        },
+        "cursor": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Computed cursor."
+        },
+        "transform": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Computed transform."
+        },
+        "transition": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Computed transition."
+        },
+        "animation": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Computed animation."
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Computed opacity."
+        },
+        "clipPath": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Computed clip-path."
+        },
+        "isolation": {
+          "type": "string",
+          "maxLength": 16,
+          "description": "Computed isolation."
+        },
+        "contain": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Computed contain."
+        },
+        "willChange": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Computed will-change."
+        }
+      },
+      "description": "Snapshot of computed CSS styles at discovery time."
+    },
+    "formInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "formId",
+        "pageId"
+      ],
+      "properties": {
+        "formId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this form."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId this form belongs to."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The form name."
+        },
+        "action": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The form action URL."
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "DIALOG"],
+          "description": "The form submission method."
+        },
+        "encoding": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The form enctype."
+        },
+        "multipart": {
+          "type": "boolean",
+          "description": "Whether multipart/form-data is used."
+        },
+        "autocomplete": {
+          "type": "boolean",
+          "description": "Whether autocomplete is enabled."
+        },
+        "novalidate": {
+          "type": "boolean",
+          "description": "Whether browser validation is disabled."
+        },
+        "target": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The form target attribute."
+        },
+        "controls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/formControl"
+          },
+          "description": "Ordered list of form controls in DOM order."
+        },
+        "submitButton": {
+          "$ref": "#/$defs/elementReference",
+          "description": "Reference to the primary submit button."
+        },
+        "allSubmitButtons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/elementReference"
+          },
+          "description": "All submit buttons in the form."
+        },
+        "validationSummary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "present": {
+              "type": "boolean",
+              "description": "Whether a validation summary was detected."
+            },
+            "selector": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "CSS selector for the validation summary."
+            },
+            "elementId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The elementId of the validation summary."
+            },
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "controlElementId": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The elementId of the associated form control."
+                  },
+                  "message": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "description": "The error message text."
+                  },
+                  "selector": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "description": "CSS selector for the error message element."
+                  }
+                },
+                "description": "A validation error message."
+              },
+              "description": "Validation error messages discovered."
+            }
+          },
+          "description": "Validation summary analysis."
+        },
+        "fieldsetCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of fieldset elements in the form."
+        },
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "heading": {
+                "type": "string",
+                "maxLength": 1024,
+                "description": "The heading text for this section."
+              },
+              "headingLevel": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 6,
+                "description": "The heading level."
+              },
+              "controlElementIds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/uuid"
+                },
+                "description": "Control elementIds in this section."
+              }
+            },
+            "description": "A logical section of the form."
+          },
+          "description": "Logical sections identified by headings or fieldsets."
+        },
+        "controlsTotal": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of interactive controls."
+        },
+        "controlsRequired": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of required controls."
+        },
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the <form> element."
+        }
+      },
+      "description": "Discovered metadata for a single HTML form."
+    },
+    "formControl": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elementId"
+      ],
+      "properties": {
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of this form control."
+        },
+        "inputType": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "The input type."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The name attribute."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The resolved accessible label."
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this control is required."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether this control is disabled."
+        },
+        "readonly": {
+          "type": "boolean",
+          "description": "Whether this control is read-only."
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "The current value."
+        },
+        "placeholder": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The placeholder text."
+        },
+        "validation": {
+          "$ref": "#/$defs/inputValidation",
+          "description": "Validation constraints."
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": "string",
+                "maxLength": 4096,
+                "description": "The option value."
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 4096,
+                "description": "The option visible text."
+              },
+              "selected": {
+                "type": "boolean",
+                "description": "Whether this option is selected."
+              },
+              "disabled": {
+                "type": "boolean",
+                "description": "Whether this option is disabled."
+              }
+            },
+            "description": "A single option."
+          },
+          "description": "Available options for select and datalist controls."
+        },
+        "group": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The logical group for radio/checkbox groups."
+        },
+        "tabIndex": {
+          "type": "integer",
+          "description": "The tabindex value."
+        },
+        "autofocus": {
+          "type": "boolean",
+          "description": "Whether autofocus is set."
+        },
+        "autocomplete": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The autocomplete attribute value."
+        }
+      },
+      "description": "A single form control within a form."
+    },
+    "tableInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tableId",
+        "pageId"
+      ],
+      "properties": {
+        "tableId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this table."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId this table belongs to."
+        },
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the <table> element."
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "The caption text."
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "The summary or description."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/tableRow"
+              },
+              "description": "Header rows."
+            },
+            "columnCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of header columns."
+            },
+            "rowCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of header rows."
+            }
+          },
+          "description": "Table header information."
+        },
+        "body": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/tableRow"
+              },
+              "description": "Data rows."
+            },
+            "rowCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of data rows."
+            },
+            "columnCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum number of data columns."
+            }
+          },
+          "description": "Table body data."
+        },
+        "footer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/tableRow"
+              },
+              "description": "Footer rows."
+            },
+            "rowCount": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of footer rows."
+            }
+          },
+          "description": "Table footer information."
+        },
+        "sortable": {
+          "type": "boolean",
+          "description": "Whether the table supports sorting."
+        },
+        "sortColumns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "columnIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Zero-based column index."
+              },
+              "headerElementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the sortable header cell."
+              },
+              "currentSort": {
+                "type": "string",
+                "enum": ["ascending", "descending", "none"],
+                "description": "Current sort state."
+              }
+            },
+            "description": "A sortable column."
+          },
+          "description": "Sortable columns and their sort state."
+        },
+        "filterable": {
+          "type": "boolean",
+          "description": "Whether the table supports filtering."
+        },
+        "filterControls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/elementReference"
+          },
+          "description": "Filter input elements."
+        },
+        "pagination": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "present": {
+              "type": "boolean",
+              "description": "Whether pagination is present."
+            },
+            "controls": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/elementReference"
+              },
+              "description": "Pagination control elements."
+            },
+            "totalPages": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total number of pages."
+            },
+            "currentPage": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Current page number."
+            },
+            "pageSize": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Rows per page."
+            },
+            "type": {
+              "type": "string",
+              "enum": ["numbered", "prevNext", "loadMore", "infiniteScroll", "unknown"],
+              "description": "Pagination mechanism type."
+            }
+          },
+          "description": "Pagination controls and state."
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the action element."
+              },
+              "type": {
+                "type": "string",
+                "enum": ["edit", "delete", "view", "create", "duplicate", "export", "select", "custom"],
+                "description": "The action type."
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The action label."
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["row", "table", "selection"],
+                "description": "The action scope."
+              }
+            },
+            "description": "A table action."
+          },
+          "description": "Action elements associated with the table."
+        },
+        "cellCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of data cells."
+        },
+        "emptyRows": {
+          "type": "boolean",
+          "description": "Whether the table is empty."
+        },
+        "rowSelector": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "present": {
+              "type": "boolean",
+              "description": "Whether row selection is supported."
+            },
+            "selectionType": {
+              "type": "string",
+              "enum": ["single", "multiple", "none"],
+              "description": "Selection type."
+            },
+            "selectAllElementId": {
+              "$ref": "#/$defs/uuid",
+              "description": "The elementId of the select-all checkbox."
+            }
+          },
+          "description": "Row selection controls."
+        },
+        "responsive": {
+          "type": "string",
+          "enum": ["horizontalScroll", "collapsed", "cardLayout", "stacked", "none", "unknown"],
+          "description": "Responsive behaviour pattern."
+        }
+      },
+      "description": "Discovered metadata for a single HTML table."
+    },
+    "tableRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rowIndex"
+      ],
+      "properties": {
+        "rowIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based row index."
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tableCell"
+          },
+          "description": "Cells in this row."
+        },
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the <tr> element."
+        },
+        "selected": {
+          "type": "boolean",
+          "description": "Whether this row is selected."
+        }
+      },
+      "description": "A single row within a table section."
+    },
+    "tableCell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elementId",
+        "columnIndex"
+      ],
+      "properties": {
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the cell element."
+        },
+        "tag": {
+          "type": "string",
+          "enum": ["th", "td"],
+          "description": "The cell tag."
+        },
+        "columnIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based column index."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "The cell text content."
+        },
+        "colspan": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Number of columns spanned."
+        },
+        "rowspan": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Number of rows spanned."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["row", "col", "rowgroup", "colgroup", "auto"],
+          "description": "The scope attribute."
+        },
+        "sortable": {
+          "type": "boolean",
+          "description": "Whether this header cell supports sorting."
+        },
+        "sortDirection": {
+          "type": "string",
+          "enum": ["ascending", "descending", "none"],
+          "description": "Current sort direction."
+        }
+      },
+      "description": "A single cell within a table row."
+    },
+    "navigationInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "menus": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/navigationMenu"
+          },
+          "description": "Discovered navigation menus."
+        },
+        "breadcrumbs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the breadcrumb container."
+              },
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where found."
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "maxLength": 512,
+                      "description": "The breadcrumb item text."
+                    },
+                    "elementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId of the breadcrumb item."
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri",
+                      "maxLength": 2048,
+                      "description": "The breadcrumb link URL."
+                    },
+                    "active": {
+                      "type": "boolean",
+                      "description": "Whether this is the current page."
+                    }
+                  },
+                  "description": "A breadcrumb item."
+                },
+                "description": "Ordered breadcrumb items."
+              },
+              "separator": {
+                "type": "string",
+                "maxLength": 16,
+                "description": "The separator character."
+              }
+            },
+            "description": "A breadcrumb navigation component."
+          },
+          "description": "Breadcrumb navigation components."
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "containerElementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the tablist container."
+              },
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where found."
+              },
+              "tabs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "elementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId of the tab trigger."
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 512,
+                      "description": "The tab label."
+                    },
+                    "selected": {
+                      "type": "boolean",
+                      "description": "Whether this tab is selected."
+                    },
+                    "panelElementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId of the associated tab panel."
+                    },
+                    "index": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Zero-based tab index."
+                    }
+                  },
+                  "description": "A single tab."
+                },
+                "description": "All tabs in the tablist."
+              },
+              "orientation": {
+                "type": "string",
+                "enum": ["horizontal", "vertical"],
+                "description": "Tablist orientation."
+              }
+            },
+            "description": "A tab navigation component."
+          },
+          "description": "Tab navigation components."
+        },
+        "sidebars": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the sidebar container."
+              },
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where found."
+              },
+              "position": {
+                "type": "string",
+                "enum": ["left", "right"],
+                "description": "Sidebar position."
+              },
+              "collapsible": {
+                "type": "boolean",
+                "description": "Whether the sidebar can be collapsed."
+              },
+              "collapsed": {
+                "type": "boolean",
+                "description": "Whether currently collapsed."
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/elementReference"
+                },
+                "description": "Top-level navigation items."
+              },
+              "groupCount": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Number of logical groups."
+              }
+            },
+            "description": "A sidebar navigation component."
+          },
+          "description": "Sidebar navigation components."
+        },
+        "footers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the footer."
+              },
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where found."
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/elementReference"
+                },
+                "description": "Footer link elements."
+              },
+              "columns": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Number of footer columns."
+              },
+              "content": {
+                "type": "string",
+                "maxLength": 5000,
+                "description": "Summary footer text."
+              }
+            },
+            "description": "A footer navigation component."
+          },
+          "description": "Footer navigation components."
+        },
+        "pagination": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "elementId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The elementId of the pagination container."
+              },
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId where found."
+              },
+              "type": {
+                "type": "string",
+                "enum": ["numbered", "prevNext", "loadMore", "infiniteScroll", "unknown"],
+                "description": "Pagination type."
+              },
+              "controls": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/elementReference"
+                },
+                "description": "Pagination control elements."
+              },
+              "currentPage": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Current page number."
+              },
+              "totalPages": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Total pages."
+              },
+              "associatedTableId": {
+                "$ref": "#/$defs/uuid",
+                "description": "Associated tableId if applicable."
+              }
+            },
+            "description": "A pagination component."
+          },
+          "description": "Pagination navigation components."
+        },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "internal": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "elementId": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The elementId of the anchor."
+                  },
+                  "pageId": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The pageId where found."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048,
+                    "description": "The link URL."
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "description": "The link text."
+                  },
+                  "targetPageId": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The target pageId if discovered."
+                  }
+                },
+                "description": "An internal link."
+              },
+              "description": "Internal links within the application."
+            },
+            "external": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "elementId": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The elementId of the anchor."
+                  },
+                  "pageId": {
+                    "$ref": "#/$defs/uuid",
+                    "description": "The pageId where found."
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 2048,
+                    "description": "The link URL."
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 1024,
+                    "description": "The link text."
+                  },
+                  "domain": {
+                    "type": "string",
+                    "maxLength": 256,
+                    "description": "The external domain."
+                  }
+                },
+                "description": "An external link."
+              },
+              "description": "External links outside the application."
+            },
+            "totalInternal": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total unique internal links."
+            },
+            "totalExternal": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Total unique external links."
+            }
+          },
+          "description": "Categorised link inventory."
+        }
+      },
+      "description": "Consolidated navigation inventory across all pages."
+    },
+    "navigationMenu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elementId",
+        "pageId"
+      ],
+      "properties": {
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the menu container."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId where found."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["primary", "secondary", "context", "dropdown", "flyout", "megaMenu", "accordion", "unknown"],
+          "description": "Menu classification."
+        },
+        "orientation": {
+          "type": "string",
+          "enum": ["horizontal", "vertical"],
+          "description": "Menu orientation."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The accessible label."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/menuItem"
+          },
+          "description": "Top-level menu items."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum nesting depth."
+        },
+        "itemCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of top-level items."
+        }
+      },
+      "description": "A single navigation menu component."
+    },
+    "menuItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elementId"
+      ],
+      "properties": {
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of this menu item."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The visible label."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The navigation URL."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether this item is the current page."
+        },
+        "disabled": {
+          "type": "boolean",
+          "description": "Whether this item is disabled."
+        },
+        "icon": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The icon identifier."
+        },
+        "shortcut": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Keyboard shortcut."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/menuItem"
+          },
+          "description": "Nested sub-menu items."
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based position."
+        },
+        "hasPopup": {
+          "type": "boolean",
+          "description": "Whether this item opens a sub-menu."
+        }
+      },
+      "description": "A single item within a navigation menu."
+    },
+    "dialogInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dialogId",
+        "pageId",
+        "type"
+      ],
+      "properties": {
+        "dialogId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this dialog."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The pageId this dialog belongs to."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["modal", "drawer", "popup", "alert", "alertdialog", "toast", "tooltip", "flyout", "lightbox", "sheet", "popover", "contextMenu", "unknown"],
+          "description": "Dialog classification."
+        },
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the dialog container."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The accessible label or heading."
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Whether visible at discovery time."
+        },
+        "modal": {
+          "type": "boolean",
+          "description": "Whether the dialog is modal."
+        },
+        "closable": {
+          "type": "boolean",
+          "description": "Whether the dialog can be closed."
+        },
+        "closeMethods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["closeButton", "backdrop", "escape", "programmatic", "swipe", "timeout"]
+          },
+          "description": "Available close methods."
+        },
+        "triggerElementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the trigger element."
+        },
+        "contentElementIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uuid"
+          },
+          "description": "Primary content elementIds."
+        },
+        "containsForm": {
+          "type": "boolean",
+          "description": "Whether the dialog contains a form."
+        },
+        "formId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The formId if the dialog contains a form."
+        },
+        "dimensions": {
+          "$ref": "#/$defs/coordinates",
+          "description": "The dialog bounding box."
+        },
+        "backdropVisible": {
+          "type": "boolean",
+          "description": "Whether a backdrop overlay is visible."
+        },
+        "dismissTimeout": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Auto-dismiss timeout in milliseconds."
+        },
+        "position": {
+          "type": "string",
+          "enum": ["center", "top", "bottom", "left", "right", "topLeft", "topRight", "bottomLeft", "bottomRight", "custom"],
+          "description": "Visual position on screen."
+        },
+        "width": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "CSS width value."
+        },
+        "maxWidth": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "CSS max-width value."
+        },
+        "height": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "CSS height value."
+        },
+        "maxHeight": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "CSS max-height value."
+        },
+        "animation": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Animation or transition class."
+        },
+        "trapsFocus": {
+          "type": "boolean",
+          "description": "Whether keyboard focus is trapped."
+        },
+        "restoresFocus": {
+          "type": "boolean",
+          "description": "Whether focus returns to trigger on close."
+        },
+        "initialFocusElementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Element that receives focus on open."
+        },
+        "firstTabbableElementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "First focusable element within."
+        },
+        "lastTabbableElementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Last focusable element within."
+        }
+      },
+      "description": "Discovered metadata for a dialog or overlay element."
+    },
+    "iframeInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "iframeId",
+        "pageId",
+        "elementId"
+      ],
+      "properties": {
+        "iframeId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Globally unique identifier for this iframe."
+        },
+        "pageId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The parent pageId."
+        },
+        "elementId": {
+          "$ref": "#/$defs/uuid",
+          "description": "The elementId of the <iframe> element."
+        },
+        "src": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "description": "The src URL."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "The name attribute."
+        },
+        "sandbox": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "allow-forms", "allow-modals", "allow-orientation-lock",
+              "allow-pointer-lock", "allow-popups", "allow-popups-to-escape-sandbox",
+              "allow-presentation", "allow-same-origin", "allow-scripts",
+              "allow-top-navigation", "allow-top-navigation-by-user-activation",
+              "allow-downloads", "allow-storage-access-by-user-activation"
+            ]
+          },
+          "description": "Sandbox flags applied."
+        },
+        "loaded": {
+          "type": "boolean",
+          "description": "Whether iframe content was loaded."
+        },
+        "crossOrigin": {
+          "type": "boolean",
+          "description": "Whether cross-origin."
+        },
+        "dimensions": {
+          "$ref": "#/$defs/coordinates",
+          "description": "Rendered dimensions."
+        },
+        "allow": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Permissions Policy allow attribute."
+        },
+        "allowFullscreen": {
+          "type": "boolean",
+          "description": "Whether allowfullscreen is present."
+        },
+        "referrerPolicy": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The referrerpolicy attribute."
+        },
+        "loading": {
+          "type": "string",
+          "enum": ["lazy", "eager"],
+          "description": "The loading attribute."
+        },
+        "srcdoc": {
+          "type": "string",
+          "maxLength": 10000,
+          "description": "Inline srcdoc content."
+        },
+        "embeddedApplication": {
+          "type": "boolean",
+          "description": "Whether contains an embedded application."
+        },
+        "discoverableContent": {
+          "type": "boolean",
+          "description": "Whether content was discoverable."
+        },
+        "accessibleElements": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Elements discovered within."
+        },
+        "domain": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "The iframe source domain."
+        }
+      },
+      "description": "Discovered metadata for a single iframe element."
+    },
+    "accessibilityInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pageSummaries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pageId"
+            ],
+            "properties": {
+              "pageId": {
+                "$ref": "#/$defs/uuid",
+                "description": "The pageId for this summary."
+              },
+              "ariaRoles": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "maxProperties": 100,
+                "description": "Count of each ARIA role on the page."
+              },
+              "ariaLabels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "elementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId with aria-label."
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "The aria-label value."
+                    }
+                  },
+                  "description": "An aria-label occurrence."
+                },
+                "description": "All aria-label values on the page."
+              },
+              "headingHierarchy": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "h1": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Count of h1 elements."
+                  },
+                  "h2": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Count of h2 elements."
+                  },
+                  "h3": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Count of h3 elements."
+                  },
+                  "h4": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Count of h4 elements."
+                  },
+                  "h5": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Count of h5 elements."
+                  },
+                  "h6": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Count of h6 elements."
+                  },
+                  "skippedLevels": {
+                    "type": "boolean",
+                    "description": "Whether heading levels are skipped."
+                  },
+                  "order": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "elementId": {
+                          "$ref": "#/$defs/uuid",
+                          "description": "The elementId of the heading."
+                        },
+                        "level": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 6,
+                          "description": "Heading level."
+                        },
+                        "text": {
+                          "type": "string",
+                          "maxLength": 1024,
+                          "description": "Heading text."
+                        }
+                      },
+                      "description": "A heading element."
+                    },
+                    "description": "Ordered list of headings in DOM order."
+                  },
+                  "totalHeadings": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total heading count."
+                  }
+                },
+                "description": "Heading hierarchy analysis."
+              },
+              "landmarks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "role": {
+                      "type": "string",
+                      "maxLength": 64,
+                      "description": "Landmark role."
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 1024,
+                      "description": "Landmark accessible label."
+                    },
+                    "elementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId of the landmark."
+                    }
+                  },
+                  "description": "A landmark region."
+                },
+                "description": "Landmark regions on the page."
+              },
+              "tabOrder": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "orderedElementIds": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/uuid"
+                    },
+                    "description": "Focusable elements in tab order."
+                  },
+                  "tabbableCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total tabbable elements."
+                  },
+                  "positiveTabIndexCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Elements with positive tabindex."
+                  },
+                  "focusableButHiddenCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Focusable but not visible."
+                  }
+                },
+                "description": "Tab order analysis."
+              },
+              "keyboardSupport": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "missingTabIndex": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/elementReference"
+                    },
+                    "description": "Elements missing tabindex."
+                  },
+                  "missingKeyboardHandlers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "elementId": {
+                          "$ref": "#/$defs/uuid",
+                          "description": "The elementId."
+                        },
+                        "expectedKeys": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "maxLength": 32
+                          },
+                          "description": "Missing keyboard keys."
+                        }
+                      },
+                      "description": "Element with incomplete keyboard support."
+                    },
+                    "description": "Elements with potential keyboard issues."
+                  },
+                  "assessed": {
+                    "type": "boolean",
+                    "description": "Whether keyboard support was assessed."
+                  },
+                  "overallScore": {
+                    "type": "string",
+                    "enum": ["good", "fair", "poor", "unknown"],
+                    "description": "Overall keyboard accessibility."
+                  }
+                },
+                "description": "Keyboard accessibility assessment."
+              },
+              "contrastIssues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "elementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId with the issue."
+                    },
+                    "foregroundColor": {
+                      "type": "string",
+                      "maxLength": 32,
+                      "description": "Foreground colour as hex."
+                    },
+                    "backgroundColor": {
+                      "type": "string",
+                      "maxLength": 32,
+                      "description": "Background colour as hex."
+                    },
+                    "contrastRatio": {
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 21.0,
+                      "description": "Computed contrast ratio."
+                    },
+                    "threshold": {
+                      "type": "number",
+                      "minimum": 1.0,
+                      "maximum": 21.0,
+                      "description": "Required minimum ratio."
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": ["AA", "AAA"],
+                      "description": "WCAG level at which this fails."
+                    },
+                    "textSize": {
+                      "type": "string",
+                      "enum": ["normal", "large"],
+                      "description": "Text size classification."
+                    }
+                  },
+                  "description": "A colour contrast issue."
+                },
+                "description": "Colour contrast accessibility issues."
+              },
+              "altTextIssues": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "elementId": {
+                      "$ref": "#/$defs/uuid",
+                      "description": "The elementId of the image."
+                    },
+                    "issue": {
+                      "type": "string",
+                      "enum": ["missing", "empty", "redundant", "filename"],
+                      "description": "Type of alt text issue."
+                    },
+                    "currentAlt": {
+                      "type": "string",
+                      "maxLength": 2048,
+                      "description": "Current alt text value."
+                    }
+                  },
+                  "description": "An alt text issue."
+                },
+                "description": "Image alt text issues."
+              }
+            },
+            "description": "Per-page accessibility summary."
+          },
+          "description": "Accessibility summaries for each page."
+        },
+        "totalIssues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total accessibility issues across all pages."
+        },
+        "totalContrastIssues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total contrast issues."
+        },
+        "totalAltTextIssues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total alt text issues."
+        },
+        "totalKeyboardIssues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total keyboard accessibility issues."
+        },
+        "totalHeadingIssues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total heading hierarchy issues."
+        },
+        "averageScore": {
+          "type": "string",
+          "enum": ["good", "fair", "poor", "unknown"],
+          "description": "Overall accessibility score."
+        }
+      },
+      "description": "Consolidated accessibility analysis across all pages."
+    },
+    "layoutInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "viewport": {
+          "$ref": "#/$defs/viewportInfo",
+          "description": "Primary viewport dimensions."
+        },
+        "responsive": {
+          "type": "boolean",
+          "description": "Whether the application is responsive."
+        },
+        "breakpoints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 64,
+                "description": "Breakpoint name (e.g. 'sm', 'md', 'lg')."
+              },
+              "width": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Breakpoint width in pixels."
+              },
+              "mediaQuery": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "The CSS media query string."
+              }
+            },
+            "description": "A responsive breakpoint."
+          },
+          "description": "Responsive breakpoints detected."
+        },
+        "gridSystem": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Grid system detected (e.g. 'bootstrap', 'css-grid', 'flexbox')."
+        },
+        "cssFramework": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "CSS framework detected (e.g. 'tailwind', 'bootstrap', 'material-ui', 'chakra')."
+        },
+        "containerQueries": {
+          "type": "boolean",
+          "description": "Whether container queries are used."
+        },
+        "cssModules": {
+          "type": "boolean",
+          "description": "Whether CSS modules are detected."
+        },
+        "cssInJs": {
+          "type": "boolean",
+          "description": "Whether CSS-in-JS is detected."
+        }
+      },
+      "description": "Layout-level metadata about the application's rendering environment."
+    },
+    "pageStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "totalElements": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total elements discovered on this page."
+        },
+        "interactiveElements": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of interactive elements (buttons, links, inputs)."
+        },
+        "formElements": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of form-associated elements."
+        },
+        "totalForms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of forms on this page."
+        },
+        "totalTables": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tables on this page."
+        },
+        "totalDialogs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of dialogs on this page."
+        },
+        "totalIframes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of iframes on this page."
+        },
+        "totalLinks": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total links on this page."
+        },
+        "totalHeadings": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total headings on this page."
+        },
+        "accessibilityIssues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total accessibility issues on this page."
+        },
+        "discoveryCompleteness": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Fraction of expected elements successfully discovered."
+        },
+        "domDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Maximum DOM tree depth on this page."
+        },
+        "domNodeCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Estimated total DOM node count (including non-element nodes)."
+        }
+      },
+      "description": "Per-page statistics for quick quality assessment."
+    }
+  }
+}
