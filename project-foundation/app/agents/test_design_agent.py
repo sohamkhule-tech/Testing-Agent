@@ -6,25 +6,21 @@ producing a comprehensive, structured test plan.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from app.constants import RunStatus
 from app.core.interfaces import IAgent, ILLMClient
-from app.exceptions import AgentExecutionError, LLMProviderError
+from app.exceptions import AgentExecutionError
 from app.logging import LoggerMixin
 from app.prompts import get_prompt
 from app.schemas.inventory import Inventory
 from app.schemas.test_plan import (
     ApplicationSummary,
     CoverageSummary,
-    Priority,
-    Risk,
     ScenarioDependencies,
     ScenarioMetadata,
     TestAssumptions,
-    TestCategory,
     TestModule,
     TestPlan,
     TestPriorities,
@@ -129,10 +125,9 @@ class TestDesignAgent(IAgent, LoggerMixin):
             # Load inventory via service
             inventory = await self.service.load_inventory(workspace_path)
 
-            # Generate test plan via LLM (pass user_prompt for focus areas)
+            # Generate test plan via LLM (pass user_prompt and execution_plan for scope)
             user_prompt_text = input_data.get("user_prompt") or ""
-            prompt_context_dict = input_data.get("prompt_context") or {}
-            test_plan = await self._generate_test_plan(run_id, request_id, inventory, user_prompt_text, prompt_context_dict)
+            test_plan = await self._generate_test_plan(run_id, request_id, inventory, user_prompt_text, input_data)
 
             # Persist test plan (JSON)
             test_plan_path = await self.service.persist_test_plan(workspace_path, test_plan)
@@ -173,17 +168,20 @@ class TestDesignAgent(IAgent, LoggerMixin):
         request_id: UUID,
         inventory: Inventory,
         user_prompt_text: str = "",
-        prompt_context_dict: dict | None = None,
+        input_data: dict[str, Any] | None = None,
     ) -> TestPlan:
         """
         Generate test plan using LLM analysis of inventory.
+
+        Phase 2: builds ParsedPromptIntent from ExecutionPlan.workflow_scope
+        (single source of truth) instead of re-parsing the user prompt.
 
         Args:
             run_id: Run identifier
             request_id: Request correlation ID
             inventory: Application inventory
-            user_prompt_text: Raw user prompt string
-            prompt_context_dict: Pre-parsed ParsedPromptIntent as dict (from workflow state)
+            user_prompt_text: Raw user prompt string (for LLM context only)
+            input_data: Full execute() input dict (contains execution_plan)
 
         Returns:
             Generated TestPlan
@@ -191,16 +189,35 @@ class TestDesignAgent(IAgent, LoggerMixin):
         Raises:
             AgentExecutionError: If LLM analysis fails
         """
-        # Build system prompt via centralized PromptBuilder (Phase 5)
+        # Phase 2: build ParsedPromptIntent from ExecutionPlan (single source of truth)
+        # instead of re-parsing the user prompt or prompt_context directly.
         from app.services.prompt_builder import (
-            PromptBuildContext, ParsedPromptIntent, get_prompt_builder,
+            ParsedPromptIntent,
+            PromptBuildContext,
+            get_prompt_builder,
         )
-        if prompt_context_dict:
-            parsed_intent = ParsedPromptIntent.from_dict(prompt_context_dict)
+        execution_plan_dict = (input_data or {}).get("execution_plan") or {}
+        if isinstance(execution_plan_dict, dict):
+            ws = execution_plan_dict.get("workflow_scope") or {}
         else:
-            # Fall back to raw text parsing when no structured context available
-            from app.services.prompt_builder import get_prompt_parser
-            parsed_intent, _ = get_prompt_parser().parse(user_prompt_text)
+            ws = {}
+        parsed_intent = ParsedPromptIntent(
+            raw_text=user_prompt_text,
+            focus_areas=list(ws.get("included_modules") or []),
+            excluded_modules=list(ws.get("excluded_modules") or []),
+            included_pages=list(ws.get("included_pages") or []),
+            excluded_pages=list(ws.get("excluded_pages") or []),
+            coverage_preferences=list(ws.get("coverage_preferences") or []),
+            output_preferences=list(ws.get("output_preferences") or []),
+        )
+
+        # Execution Scope Enforcement (Phase 5): the LLM must never receive the
+        # complete inventory when the ExecutionPlan restricts scope. Filter the
+        # inventory through the same resolver used by the crawler.
+        from app.execution_scope.filtering import apply_execution_scope
+
+        if execution_plan_dict:
+            inventory = apply_execution_scope(inventory, execution_plan_dict)
 
         build_ctx = PromptBuildContext(
             agent_role="test-design-agent",
@@ -439,6 +456,24 @@ IMPORTANT — Coverage Requirements:
 
         # Build modules
         modules_data = response_data.get("modules", [])
+
+        # Execution Scope Enforcement (Phase 5): drop any LLM-generated module
+        # or scenario that falls outside ExecutionPlan scope before building the
+        # TestPlan object. Scope data is only visible through the intent above.
+        if execution_plan_dict:
+            from app.execution_scope.filtering import filter_scenarios_by_scope
+            from app.execution_scope.resolver import ExecutionScopeResolver
+
+            scope_resolver = ExecutionScopeResolver(execution_plan_dict)
+            modules_data, filtered_scenarios = filter_scenarios_by_scope(
+                modules_data,
+                all_raw_scenarios if isinstance(all_raw_scenarios, list) else [],
+                scope_resolver,
+            )
+            response_data["modules"] = modules_data
+            if isinstance(all_raw_scenarios, list):
+                response_data["test_scenarios"] = filtered_scenarios
+
         modules = []
         all_scenarios = []
         for mod in modules_data:
@@ -507,7 +542,7 @@ IMPORTANT — Coverage Requirements:
         test_plan = TestPlan(
             run_id=run_id,
             request_id=request_id,
-            generated_at=datetime.now(timezone.utc),
+            generated_at=datetime.now(UTC),
             application_summary=ApplicationSummary(
                 name=app_summary_data.get("name", "Unknown"),
                 total_pages=app_summary_data.get("total_pages", len(inventory.pages)),

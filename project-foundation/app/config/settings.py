@@ -70,7 +70,7 @@ class LLMSettings(BaseSettings):
     openai_model: str = Field(default="gpt-4", description="Model name (e.g. llama3, mistral for Ollama)")
     openai_temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Temperature")
     openai_max_tokens: int = Field(default=4096, gt=0, description="Max tokens")
-    openai_timeout: int = Field(default=900, gt=0, description="Request timeout")
+    openai_timeout: int = Field(default=900, gt=0, description="Request timeout in seconds")
 
     # Provider
     llm_provider: Literal["openai", "ollama", "azure", "anthropic"] = Field(

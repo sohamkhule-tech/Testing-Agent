@@ -102,6 +102,23 @@ class CrawlerAgent(IAgent, LoggerMixin):
             exclude_patterns = scope_overrides.get("exclude_pages", [])
             include_patterns = scope_overrides.get("include_pages", [])
 
+            # Execution Scope Enforcement: ExecutionPlan is the single source of
+            # truth. Build the resolver from the serialised ExecutionPlan when
+            # available; otherwise fall back to the legacy scope_overrides.
+            from app.execution_scope.resolver import ExecutionScopeResolver
+            execution_plan = input_data.get("execution_plan")
+            if execution_plan:
+                self.service._scope_resolver = ExecutionScopeResolver(execution_plan)
+            else:
+                self.service._scope_resolver = ExecutionScopeResolver(
+                    scope={
+                        "included_modules": [],
+                        "excluded_modules": [],
+                        "included_pages": include_patterns,
+                        "excluded_pages": exclude_patterns,
+                    }
+                )
+
             # If the user specified include_pages, restrict max crawl to those paths
             effective_max_depth = max_depth
             effective_max_pages = max_pages
@@ -136,6 +153,15 @@ class CrawlerAgent(IAgent, LoggerMixin):
             self.service._exclude_patterns = exclude_patterns
             self.service._include_patterns = include_patterns
 
+            # Execution Scope Enforcement: log what the resolver concluded for
+            # the crawl (visible in run traces / metrics).
+            self.logger.info(
+                "crawler_scope_resolver_configured",
+                included_modules=self.service._scope_resolver.included_modules,
+                excluded_modules=self.service._scope_resolver.excluded_modules,
+                stopping_conditions=self.service._scope_resolver.stopping_conditions,
+            )
+
             self.logger.info(
                 "crawler_request_prepared",
                 run_id=str(run_id),
@@ -166,6 +192,7 @@ class CrawlerAgent(IAgent, LoggerMixin):
                 "crawl_depth_reached": crawl_package.crawl_summary.crawl_depth_reached,
                 "message": f"Crawled {crawl_package.crawl_summary.pages_visited} pages successfully",
                 "crawl_package_path": f"{workspace_path}/contracts/crawl-package.json",
+                "scope_trace": list(crawl_package.scope_trace),
             }
 
         except AgentExecutionError:

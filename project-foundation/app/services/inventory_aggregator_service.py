@@ -33,6 +33,7 @@ class InventoryAggregatorService(LoggerMixin):
         workspace_path: str,
         crawl_package: CrawlPackage | None = None,
         excluded_modules: list[str] | None = None,
+        execution_scope: dict | None = None,
     ) -> Inventory:
         """
         Load, aggregate, deduplicate, and return inventory.
@@ -41,6 +42,9 @@ class InventoryAggregatorService(LoggerMixin):
             run_id: Run identifier
             workspace_path: Run workspace directory path
             crawl_package: Optional pre-loaded crawl package (for testing)
+            excluded_modules: Module/page names to exclude per user prompt
+            execution_scope: Optional serialised ExecutionPlan (single source of
+                truth) used to filter pages, elements, navigation, and flows.
 
         Returns:
             Normalized Inventory
@@ -164,6 +168,23 @@ class InventoryAggregatorService(LoggerMixin):
             statistics=stats,
         )
 
+        # Execution Scope Enforcement: filter the aggregated inventory to the
+        # modules in scope (Phase 4). When no scope is present, inventory is
+        # returned unchanged.
+        if execution_scope:
+            from app.execution_scope.filtering import apply_execution_scope
+
+            inventory = apply_execution_scope(inventory, execution_scope)
+            self.logger.info(
+                "inventory_scope_applied",
+                pages=len(inventory.pages),
+                forms=len(inventory.forms),
+                buttons=len(inventory.buttons),
+                inputs=len(inventory.inputs),
+                navigation_edges=inventory.navigation.total_edges,
+                screenshots=len(inventory.screenshots),
+            )
+
         return inventory
 
     async def aggregate_and_persist(
@@ -172,6 +193,7 @@ class InventoryAggregatorService(LoggerMixin):
         workspace_path: str,
         crawl_package: CrawlPackage | None = None,
         excluded_modules: list[str] | None = None,
+        execution_scope: dict | None = None,
     ) -> Inventory:
         """
         Aggregate crawler outputs and persist inventory.json.
@@ -181,6 +203,8 @@ class InventoryAggregatorService(LoggerMixin):
             workspace_path: Run workspace directory path
             crawl_package: Optional pre-loaded crawl package (for testing)
             excluded_modules: Module/page names to exclude per user prompt
+            execution_scope: Optional serialised ExecutionPlan used to filter
+                the inventory before persistence.
 
         Returns:
             Persisted Inventory
@@ -189,7 +213,9 @@ class InventoryAggregatorService(LoggerMixin):
             ValidationError: If required artifacts are missing or malformed
             StorageError: If file operations fail
         """
-        inventory = await self.aggregate(run_id, workspace_path, crawl_package, excluded_modules)
+        inventory = await self.aggregate(
+            run_id, workspace_path, crawl_package, excluded_modules, execution_scope
+        )
         await self._persist_inventory(Path(workspace_path), inventory)
         return inventory
 

@@ -128,6 +128,11 @@ class RunEntity(TimestampedModel):
     user_prompt_redacted_text: str | None = Field(None, description="Display-safe redacted prompt")
     prompt_context_json: dict | None = Field(None, description="Parsed ParsedPromptIntent as dict")
     prompt_version: str | None = Field(None, description="Prompt template version tag")
+    # ── Phase 2: serialised AgentState + ExecutionPlan for resume ──
+    agent_state_json: dict | None = Field(None, description="Serialised AgentState for cross-restart context reconstruction")
+    execution_plan_json: dict | None = Field(None, description="Serialised ExecutionPlan for cross-restart context reconstruction")
+    # Phase 4.5: reasoning trace for post-hoc analysis + conversational refinement
+    reasoning_trace_json: dict | None = Field(None, description="Serialised ReasoningTrace summary (detected intent, constraints, decisions)")
     # ── Checkpoint / resume fields ──
     completed_stages: list[str] | None = Field(None, description="Ordered list of successfully completed stage names")
     last_completed_stage: str | None = Field(None, description="Most recent completed stage name")

@@ -1008,6 +1008,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
         case EventType.WORKFLOW_FAILED:
           overallStatus = 'failed';
+          // Never leave the browser workspace hanging on "Loading..." after a
+          // failure — reset transient launch/navigation/action state so the last
+          // captured frame is shown instead of an eternal spinner.
+          browserActivity = { ...browserActivity, status: 'idle' };
+          currentAction = null;
+          if (data.stage) {
+            stages = updateStage(stages, data.stage as string, {
+              status: 'failed',
+              error: (data.error as string) || 'Workflow failed',
+            });
+          }
           break;
 
         case EventType.WORKFLOW_PAUSED:

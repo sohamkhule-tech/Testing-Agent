@@ -5,10 +5,12 @@ Business logic for web crawling and discovery.
 """
 
 import asyncio
-from datetime import datetime, timezone
+import re
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, parse_qs, urlencode, urljoin, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlparse, urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
 from playwright.async_api import BrowserContext, Locator, Page
@@ -16,6 +18,7 @@ from playwright.async_api import BrowserContext, Locator, Page
 from app.core.event_bus import EventType, emit
 from app.core.interfaces import IService
 from app.exceptions import BrowserError, ServiceError
+from app.execution_scope.resolver import ExecutionScopeResolver
 from app.infrastructure import BrowserManager
 from app.logging import LoggerMixin
 from app.schemas import (
@@ -45,7 +48,54 @@ from app.schemas import (
     UploadRecord,
 )
 from app.services.dom_extractor import extract_all
-from app.utils import dumps, save_file
+from app.utils import save_file
+
+
+class AuthFailureReason(StrEnum):
+    """Structured authentication failure reasons (Phase 4.5 audit fixes)."""
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
+    LOGIN_TIMEOUT = "LOGIN_TIMEOUT"
+    MFA_REQUIRED = "MFA_REQUIRED"
+    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
+    OAUTH_REDIRECT_TIMEOUT = "OAUTH_REDIRECT_TIMEOUT"
+    NETWORK_ERROR = "NETWORK_ERROR"
+    AUTHORIZATION_DENIED = "AUTHORIZATION_DENIED"
+    LOGIN_SUCCESS_BUT_VALIDATION_FAILED = "LOGIN_SUCCESS_BUT_VALIDATION_FAILED"
+    UNKNOWN_AUTH_ERROR = "UNKNOWN_AUTH_ERROR"
+
+
+# Phase 4.5: auth error text patterns — only EXACT text matches, no class selectors
+_AUTH_ERROR_TEXT_PATTERNS: list[str] = [
+    "invalid username", "invalid password", "incorrect password",
+    "incorrect username", "wrong credentials", "wrong password", "wrong username",
+    "authentication failed", "login failed", "access denied",
+    "invalid email", "invalid user", "user not found", "account not found",
+    "account locked", "too many attempts",
+    "verify your identity", "mfa required", "multi-factor authentication",
+    "2fa required", "two-factor authentication", "captcha", "please complete the captcha",
+]
+
+# Post-login success indicators (title keywords)
+_POST_LOGIN_TITLE_KW: set[str] = {
+    "dashboard", "home", "workspace", "welcome",
+    "overview", "projects", "portal", "app",
+}
+
+# CSS selectors for post-login authenticated UI (ONLY structural, NO class-substring)
+_POST_LOGIN_UI_SELECTORS: list[str] = [
+    'nav:visible', '[role="navigation"]:visible',
+    'a:has-text("Logout"):visible', 'a:has-text("Log out"):visible',
+    'a:has-text("Sign out"):visible', 'button:has-text("Logout"):visible',
+    'a:has-text("Profile"):visible', 'a:has-text("Account"):visible',
+    '[aria-label="User menu"]:visible', '[aria-label="Account"]:visible',
+]
+
+
+class CrawlPhase(StrEnum):
+    DISCOVERY = "discovery"
+    NAVIGATION = "navigation"
+    GOAL_COMPLETION = "goal_completion"
+    CRAWL_COMPLETION = "crawl_completion"
 
 
 class CrawlerService(IService, LoggerMixin):
@@ -80,7 +130,17 @@ class CrawlerService(IService, LoggerMixin):
         self._exclude_patterns: list[str] = []
         self._include_patterns: list[str] = []
         self._screenshots_dir: str | None = None  # set during crawl(); used by _perform_login
-        
+
+        # Execution Scope Enforcement — authoritative scope from ExecutionPlan.
+        self._scope_resolver: ExecutionScopeResolver | None = None
+        self._scope_trace: list[dict[str, Any]] = []
+        self._stopped = False
+
+        # Goal Completion Engine state
+        self._crawl_phase: CrawlPhase = CrawlPhase.DISCOVERY
+        self._goal_achieved: bool = False
+        self._goal_criteria_met: list[str] = []
+
         # Crawl state
         self._visited_urls: set[str] = set()
         self._queued_urls: set[str] = set()
@@ -104,7 +164,7 @@ class CrawlerService(IService, LoggerMixin):
         self._pages_skipped = 0
         self._authenticated = False
         self._auth_page_id: UUID | None = None
-        
+
         # Extracted DOM elements (populated by _visit_page, consumed by _build_crawl_package)
         self._extracted_forms: list[FormRecord] = []
         self._extracted_inputs: list[InputRecord] = []
@@ -115,13 +175,94 @@ class CrawlerService(IService, LoggerMixin):
         self._extracted_tables: list[TableRecord] = []
         self._extracted_dialogs: list[DialogRecord] = []
         self._extracted_uploads: list[UploadRecord] = []
-        
+
         # Statistics
         self._response_times: list[int] = []
         self._status_codes: dict[str, int] = {}
         self._content_types: dict[str, int] = {}
         self._bytes_downloaded: int = 0
         self._crawl_lock = asyncio.Lock()
+
+    def _reset_state(self) -> None:
+        """Reset internal crawl state for a new crawl run."""
+        self._stopped = False
+        self._visited_urls.clear()
+        self._queued_urls.clear()
+        self._visited_pages.clear()
+        self._navigation_edges.clear()
+        self._assets = {"stylesheets": [], "scripts": [], "images": [], "fonts": []}
+        self._redirects.clear()
+        self._cookies.clear()
+        self._warnings.clear()
+        self._errors.clear()
+        self._page_map.clear()
+        self._page_ids_by_url.clear()
+        self._screenshot_page_ids.clear()
+        self._screenshots.clear()
+        self._timed_out_pages.clear()
+        self._pages_skipped = 0
+        self._authenticated = False
+        self._auth_page_id = None
+        self._extracted_forms.clear()
+        self._extracted_inputs.clear()
+        self._extracted_buttons.clear()
+        self._extracted_checkboxes.clear()
+        self._extracted_radios.clear()
+        self._extracted_dropdowns.clear()
+        self._extracted_tables.clear()
+        self._extracted_dialogs.clear()
+        self._extracted_uploads.clear()
+        self._response_times.clear()
+        self._status_codes.clear()
+        self._content_types.clear()
+        self._bytes_downloaded = 0
+        self._scope_trace.clear()
+        self._crawl_phase = CrawlPhase.DISCOVERY
+        self._goal_achieved = False
+        self._goal_criteria_met.clear()
+        if self._scope_resolver is not None:
+            self._scope_resolver.reset_completion_state()
+
+    async def _mark_goal_achieved(self, result: Any, eid: str | None) -> None:
+        """Mark goal as achieved, set phase to GOAL_COMPLETION, stop BFS and emit event."""
+        self._goal_achieved = True
+        self._crawl_phase = CrawlPhase.GOAL_COMPLETION
+        self._goal_criteria_met = getattr(result, "matched_criteria", []) or []
+        self._stopped = True
+        reason = getattr(result, "reason", "")
+        self.logger.info("goal_completion_achieved", criteria=self._goal_criteria_met, reason=reason)
+        if eid:
+            await emit(eid, EventType.GOAL_COMPLETED, {
+                "criteria_met": self._goal_criteria_met,
+                "reason": reason,
+            })
+            await emit(eid, EventType.CRAWL_PHASE_CHANGED, {
+                "phase": CrawlPhase.GOAL_COMPLETION,
+            })
+
+    def _page_observations(self) -> dict[str, Any]:
+        """Gather lightweight supporting evidence buckets for the current crawl state.
+
+        These are supporting observations only — they never declare goal
+        completion by themselves. The GoalCompletionEngine decides whether the
+        observed transitions satisfy the plan's ExpectedStateGraph.
+        """
+        return {
+            "dom": {
+                "form_count": len(self._extracted_forms),
+                "input_count": len(self._extracted_inputs),
+                "button_count": len(self._extracted_buttons),
+                "table_count": len(self._extracted_tables),
+                "dialog_count": len(self._extracted_dialogs),
+            },
+            "network": [
+                {"status": code} for code in self._status_codes.values()
+            ],
+            "storage": {
+                "cookie_count": len(self._cookies),
+            },
+            "accessibility": {"visible_dialogs": len(self._extracted_dialogs)},
+        }
 
     async def initialize(self) -> None:
         """Initialize service resources."""
@@ -141,7 +282,7 @@ class CrawlerService(IService, LoggerMixin):
             return await self._crawl_impl(request)
 
     async def _crawl_impl(self, request: CrawlRequest) -> CrawlPackage:
-        start_time = datetime.now(timezone.utc)
+        start_time = datetime.now(UTC)
         crawl_status = "completed"
         run_id_str = str(request.run_id)
         self._event_run_id = run_id_str
@@ -181,6 +322,16 @@ class CrawlerService(IService, LoggerMixin):
                     login_succeeded, post_login_url = await self._perform_login(context)
                     if login_succeeded:
                         self._authenticated = True
+                        # Record authentication as chronological evidence. A
+                        # successful authenticate() does NOT imply GOAL_COMPLETED —
+                        # the intent-derived ExpectedStateGraph decides whether
+                        # authentication is a prerequisite, the goal, or neither.
+                        if self._scope_resolver is not None:
+                            self._scope_resolver.record_action(
+                                "authenticate",
+                                url=post_login_url,
+                                auth_succeeded=True,
+                            )
                         await emit(run_id_str, EventType.STAGE_STARTED, {
                             "stage": "crawler_auth", "label": "Authentication",
                         })
@@ -190,7 +341,7 @@ class CrawlerService(IService, LoggerMixin):
                                 code="AUTH_FAILED",
                                 message="Login failed — crawling will be limited to publicly accessible pages",
                                 url=request.target_url,
-                                timestamp=datetime.now(timezone.utc),
+                                timestamp=datetime.now(UTC),
                             )
                         )
 
@@ -199,6 +350,15 @@ class CrawlerService(IService, LoggerMixin):
                 if post_login_url and post_login_url != request.target_url:
                     seed_urls.append(post_login_url)
                     self.logger.info("seeding_post_login_url", post_login_url=post_login_url)
+                    if self._scope_resolver is not None:
+                        decision = self._scope_resolver.evaluate(post_login_url)
+                        if not decision.allowed:
+                            self._log_scope_decision(
+                                post_login_url,
+                                allowed=True,
+                                reason="Required after login verification — not added to crawl scope.",
+                                kind="seed",
+                            )
                 elif post_login_url and post_login_url == request.target_url:
                     self.logger.warning("login_did_not_redirect", login_url=request.target_url,
                                         hint="Credentials may be invalid or the app requires SSO/MFA.")
@@ -245,7 +405,7 @@ class CrawlerService(IService, LoggerMixin):
                 # Close context (finalizes HAR)
                 await self.browser_manager.close_context(context)
 
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
             duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
             # Build crawl package
@@ -273,7 +433,7 @@ class CrawlerService(IService, LoggerMixin):
             return crawl_package
 
         except Exception as e:
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
             duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
             self.logger.error(
@@ -287,7 +447,7 @@ class CrawlerService(IService, LoggerMixin):
                 CrawlEvent(
                     code="CRAWL_FATAL_ERROR",
                     message=f"Crawl failed: {str(e)}",
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                 )
             )
 
@@ -340,13 +500,16 @@ class CrawlerService(IService, LoggerMixin):
         for raw_url in seed_urls or []:
             canonical_url = self._canonicalize_url(raw_url)
             if canonical_url and canonical_url not in self._queued_urls:
+                allowed, reason = self._scope_decision(canonical_url)
+                if not allowed:
+                    self._log_scope_decision(canonical_url, allowed=True, reason=f"Seed entry URL allowed: {reason}", kind="seed")
                 page_id = uuid4()
                 self._queued_urls.add(canonical_url)
                 self._page_ids_by_url[canonical_url] = page_id
                 queue.append((canonical_url, 0, None, page_id))
         root_page_id: UUID | None = None
 
-        while queue and len(self._visited_pages) < max_pages:
+        while queue and len(self._visited_pages) < max_pages and not self._stopped:
             current_url, depth, parent_page_id, page_id = queue.pop(0)
             self.logger.info(
                 "crawl_queue_dequeue",
@@ -370,7 +533,7 @@ class CrawlerService(IService, LoggerMixin):
                         code="MAX_DEPTH_REACHED",
                         message=f"Skipped {current_url} (depth {depth} > max {max_depth})",
                         url=current_url,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
                 )
                 continue
@@ -396,7 +559,7 @@ class CrawlerService(IService, LoggerMixin):
                     )
                     self._timed_out_pages.discard(current_url)
                     break
-                except asyncio.TimeoutError as exc:
+                except TimeoutError as exc:
                     last_error = exc
                     self._timed_out_pages.add(current_url)
                     self.logger.warning(
@@ -444,7 +607,7 @@ class CrawlerService(IService, LoggerMixin):
                     code=code,
                     message=f"Failed to visit {current_url}: {last_error}",
                     url=current_url,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                 ))
                 if eid:
                     await emit(eid, EventType.PAGE_FAILED, {
@@ -466,13 +629,60 @@ class CrawlerService(IService, LoggerMixin):
                 if root_page_id is None:
                     root_page_id = page_record.page_id
 
+                # Execution Scope — post-visit verification using the page title,
+                # route learning, and stopping-condition checks. A page that fails
+                # title-level verification is never added to the crawl package.
+                scope_skip_reason: str | None = None
+                if self._scope_resolver is not None:
+                    post_allowed, post_reason = self._scope_decision(
+                        page_record.url, title=page_record.title
+                    )
+                    if not post_allowed:
+                        scope_skip_reason = post_reason
+                    else:
+                        self._scope_resolver.learn(page_record.url, title=page_record.title)
+                        self._log_scope_decision(
+                            page_record.url, allowed=True, reason=post_reason, kind="page"
+                        )
+                        stop_condition = self._scope_resolver.stopping_condition_hit(
+                            page_record.url, title=page_record.title
+                        )
+                        if stop_condition:
+                            self._stopped = True
+                            self._log_scope_decision(
+                                page_record.url,
+                                allowed=True,
+                                reason=f"Stopping condition satisfied after {stop_condition}.",
+                                kind="stop",
+                            )
+                        elif not self._goal_achieved:
+                            completion = self._scope_resolver.evaluate_completion(
+                                url=page_record.url,
+                                title=page_record.title,
+                                auth_succeeded=self._authenticated,
+                                capability="page_visit",
+                                observations=self._page_observations(),
+                            )
+                            if completion.satisfied:
+                                await self._mark_goal_achieved(completion, eid)
+
+                if scope_skip_reason:
+                    self._log_scope_decision(
+                        page_record.url, allowed=False, reason=scope_skip_reason, kind="page"
+                    )
+                    continue
+
                 self._visited_urls.add(current_url)
                 self._visited_urls.add(self._canonicalize_url(page_record.url))
                 self._visited_pages.append(page_record)
                 self._page_map[current_url] = page_record.page_id
                 self._page_map[page_record.url] = page_record.page_id
 
-                if depth < max_depth:
+                if self._goal_achieved:
+                    queue.clear()
+                    break
+
+                if depth < max_depth and not self._stopped:
                     links = await self._extract_links(page, page_record.url)
                     links.extend(await self._discover_dynamic_links(page, page_record.url))
                     links = list(dict.fromkeys(links))
@@ -481,7 +691,11 @@ class CrawlerService(IService, LoggerMixin):
                     duplicate_count = 0
                     for raw_link_url, link_text in links:
                         link_url = self._canonicalize_url(raw_link_url)
-                        if not link_url or not self._should_crawl_url(link_url):
+                        if not link_url:
+                            continue
+                        allowed, reason = self._scope_decision(link_url)
+                        if not allowed:
+                            self._log_scope_decision(link_url, allowed=False, reason=reason, kind="link")
                             continue
                         target_page_id = self._page_ids_by_url.get(link_url)
                         if target_page_id is None:
@@ -526,6 +740,13 @@ class CrawlerService(IService, LoggerMixin):
             finally:
                 await page.close()
 
+        if not self._goal_achieved:
+            self._crawl_phase = CrawlPhase.CRAWL_COMPLETION
+            if eid:
+                await emit(eid, EventType.CRAWL_PHASE_CHANGED, {
+                    "phase": CrawlPhase.CRAWL_COMPLETION,
+                })
+
     async def _visit_page(
         self,
         context: BrowserContext,
@@ -557,7 +778,7 @@ class CrawlerService(IService, LoggerMixin):
 
         page = await self.browser_manager.new_page(context)
         page_id = page_id or uuid4()
-        discovered_at = datetime.now(timezone.utc)
+        discovered_at = datetime.now(UTC)
         eid = self._event_run_id
         page_completed = False
         console_logs: list[dict[str, str]] = []
@@ -583,9 +804,9 @@ class CrawlerService(IService, LoggerMixin):
             if not eid:
                 return
             try:
-                ts = datetime.now(timezone.utc).isoformat()
+                ts = datetime.now(UTC).isoformat()
                 title = await page.title()
-                timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+                timestamp = int(datetime.now(UTC).timestamp() * 1000)
                 frame_filename = f"frame_{page_id}_{timestamp}.png"
                 frame_path = Path(screenshots_dir) / frame_filename if screenshots_dir else None
                 if frame_path:
@@ -598,7 +819,7 @@ class CrawlerService(IService, LoggerMixin):
                 pass
 
         try:
-            start_time = datetime.now(timezone.utc)
+            start_time = datetime.now(UTC)
 
             # Action: Goto URL
             if eid: await emit(eid, EventType.PAGE_NAVIGATION_STARTED, {"url": url, "depth": depth})
@@ -611,7 +832,7 @@ class CrawlerService(IService, LoggerMixin):
             # Do not wait for networkidle: SPAs and polling/WebSocket pages may
             # never become idle. DOMContentLoaded is the bounded crawl barrier.
             if eid: await emit(eid, EventType.PAGE_LOADED, {"url": url, "depth": depth, "status_code": response.status if response else 0})
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
 
             if not response:
                 raise BrowserError(f"No response from {url}")
@@ -767,7 +988,7 @@ class CrawlerService(IService, LoggerMixin):
                             page_id=page_id,
                             url=page.url,
                             path=str(screenshot_path),
-                            captured_at=datetime.now(timezone.utc),
+                            captured_at=datetime.now(UTC),
                             width=int(viewport.get("width", 0)),
                             height=int(viewport.get("height", 0)),
                         ))
@@ -784,7 +1005,7 @@ class CrawlerService(IService, LoggerMixin):
                         message=f"Screenshot failed for {url}: {screenshot_error}",
                         page_id=page_id,
                         url=url,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     ))
 
             page_record = PageRecord(
@@ -1164,12 +1385,14 @@ class CrawlerService(IService, LoggerMixin):
             warnings=self._warnings,
             errors=self._errors,
             statistics=statistics,
+            scope_trace=list(self._scope_trace),
         )
 
     def _reset_state(self) -> None:
         """Reset internal crawl state."""
-        # NOTE: _auth_context, _exclude_patterns, _include_patterns are intentionally
-        # NOT reset here — they are set per-run by CrawlerAgent before calling crawl().
+        # NOTE: _auth_context, _exclude_patterns, _include_patterns, _scope_resolver
+        # are intentionally NOT reset here — they are set per-run by CrawlerAgent
+        # before calling crawl().
         self._visited_urls.clear()
         self._queued_urls.clear()
         self._visited_pages.clear()
@@ -1190,6 +1413,8 @@ class CrawlerService(IService, LoggerMixin):
         self._screenshots.clear()
         self._timed_out_pages.clear()
         self._pages_skipped = 0
+        self._scope_trace.clear()
+        self._stopped = False
         self._authenticated = False
         self._auth_page_id = None
         self._response_times.clear()
@@ -1229,27 +1454,58 @@ class CrawlerService(IService, LoggerMixin):
         except ValueError:
             return ""
 
-    def _should_crawl_url(self, url: str) -> bool:
+    def _scope_decision(self, url: str, *, title: str | None = None) -> tuple[bool, str]:
         """
-        Decide whether a URL should be added to the crawl queue.
+        Decide scope for a URL (with optional title), returning (allowed, reason).
 
-        Phase 5/6: respects include_patterns and exclude_patterns from
-        the user's prompt. An empty include list means "crawl everything."
+        Uses the ExecutionScopeResolver when configured so ExecutionPlan is the
+        single source of truth; falls back to legacy include/exclude patterns
+        for backward compatibility.
         """
-        import re as _re
-        url = self._canonicalize_url(url)
-        if not url:
-            return False
+        if self._scope_resolver is not None:
+            decision = self._scope_resolver.evaluate(url, title=title)
+            return decision.allowed, decision.reason
+        canonical = self._canonicalize_url(url)
+        if not canonical:
+            return False, "Invalid URL"
         if self._exclude_patterns:
             for pat in self._exclude_patterns:
-                if _re.search(pat, url, _re.IGNORECASE):
-                    return False
+                if re.search(pat, canonical, re.IGNORECASE):
+                    return False, "Matches excluded page pattern"
         if self._include_patterns:
             for pat in self._include_patterns:
-                if _re.search(pat, url, _re.IGNORECASE):
-                    return True
-            return False  # include list present but URL didn't match any
-        return True
+                if re.search(pat, canonical, re.IGNORECASE):
+                    return True, "Matches included page pattern"
+            return False, "Outside include scope"
+        return True, "No include scope"
+
+    def _should_crawl_url(self, url: str) -> bool:
+        """Backward-compatible predicate — only allowed URLs enter the queue."""
+        return self._scope_decision(url)[0]
+
+    def _log_scope_decision(
+        self,
+        url: str,
+        *,
+        allowed: bool,
+        reason: str,
+        kind: str = "link",
+    ) -> None:
+        """Record a scope decision for the execution trace (Phase 9)."""
+        decision = "ALLOWED" if allowed else "SKIPPED"
+        self._scope_trace.append({
+            "url": url,
+            "decision": decision,
+            "reason": reason,
+            "kind": kind,
+        })
+        self.logger.info(
+            "crawl_scope_decision",
+            url=url,
+            decision=decision,
+            reason=reason,
+            kind=kind,
+        )
 
     async def _perform_login(self, context: BrowserContext) -> tuple[bool, str | None]:
         """
@@ -1307,6 +1563,19 @@ class CrawlerService(IService, LoggerMixin):
                     if eid:
                         await emit(eid, EventType.PAGE_LOADED, {"url": attempt_url, "depth": 0, "status_code": 200})
 
+                    # Wait for React/SPA to render login form (critical for Next.js apps)
+                    await page.wait_for_timeout(2000)
+
+                    # Try to wait for password input to appear (strong signal of login form)
+                    try:
+                        await page.wait_for_selector('input[type="password"]', timeout=3000, state="visible")
+                    except Exception:
+                        # Fallback: wait for any input field
+                        try:
+                            await page.wait_for_selector('input:visible', timeout=2000)
+                        except Exception:
+                            pass  # Continue anyway, might be a different form structure
+
                     pre_login_url = page.url
 
                     username_field = await self._locate_username_field(page)
@@ -1319,31 +1588,36 @@ class CrawlerService(IService, LoggerMixin):
 
                     if username_field and password_field:
                         await username_field.fill(auth.username or "")
+                        self.logger.info("auth_username_filled", has_username=bool(auth.username))
                         await password_field.fill(auth.password or "")
+                        self.logger.info("auth_password_filled", has_password=bool(auth.password))
 
                         submit_button = await self._locate_submit_button(page)
                         if submit_button:
                             if eid:
                                 await self._emit_action_with_position(eid, submit_button, "click", "Clicking Login button...")
-                            try:
-                                await submit_button.click()
-                            except Exception:
-                                await page.keyboard.press("Enter")
 
-                            if eid:
-                                await emit(eid, EventType.BROWSER_ACTION, {"action": "wait", "label": "Waiting for dashboard to load..."})
-                            try:
-                                await page.wait_for_load_state("domcontentloaded", timeout=5000)
-                            except Exception:
-                                pass
+                            self.logger.info("auth_submit_clicked", url=pre_login_url)
 
-                            try:
-                                post_login_url = page.url
-                            except Exception:
-                                post_login_url = None
+                            # Phase 4.5 fix: Use proper navigation-aware submit with network inspection
+                            auth_state = await self._submit_and_wait_for_auth(
+                                page, submit_button, pre_login_url, eid,
+                            )
+                            post_login_url = auth_state["url"]
+                            login_succeeded = auth_state["success"]
+                            failure_reason = auth_state.get("failure_reason", AuthFailureReason.UNKNOWN_AUTH_ERROR)
 
-                            login_succeeded = await self._check_login_success(
-                                page, post_login_url, pre_login_url, attempt_url,
+                            self.logger.info(
+                                "auth_result",
+                                success=login_succeeded,
+                                url_before=pre_login_url,
+                                url_after=post_login_url,
+                                url_changed=post_login_url != pre_login_url,
+                                cookies=len(auth_state.get("cookies", [])),
+                                has_local_storage_token=auth_state.get("local_storage_token") is not None,
+                                has_session_storage_token=auth_state.get("session_storage_token") is not None,
+                                status_code=auth_state.get("status_code"),
+                                failure_reason=failure_reason.value if not login_succeeded else None,
                             )
 
                             if login_succeeded:
@@ -1354,7 +1628,7 @@ class CrawlerService(IService, LoggerMixin):
                                 self.logger.info("login_succeeded", login_url=attempt_url, post_login_url=post_login_url)
                                 await page.wait_for_timeout(2000)
                             else:
-                                self.logger.warning("login_failed", pre_login_url=pre_login_url, post_login_url=post_login_url)
+                                self.logger.warning("login_failed", reason=failure_reason.value, pre_login_url=pre_login_url, post_login_url=post_login_url)
                                 await page.wait_for_timeout(2000)
                         else:
                             self.logger.warning("login_submit_button_not_found", url=attempt_url)
@@ -1374,7 +1648,7 @@ class CrawlerService(IService, LoggerMixin):
                 return True, post_login_url
 
             if eid:
-                await emit(eid, EventType.STAGE_FAILED, {"stage": "authentication", "error": "Login failed — credentials may be invalid or MFA required"})
+                await emit(eid, EventType.STAGE_FAILED, {"stage": "authentication", "error": f"Login failed: {failure_reason.value}"})
             return False, None
         except Exception as e:
             self.logger.warning("login_failed", error=str(e))
@@ -1397,6 +1671,12 @@ class CrawlerService(IService, LoggerMixin):
         except Exception:
             pass
         try:
+            field = page.get_by_role("textbox", name="user")
+            if await field.count() > 0:
+                return field
+        except Exception:
+            pass
+        try:
             field = page.get_by_label("Username", exact=False)
             if await field.count() > 0:
                 return field
@@ -1404,6 +1684,12 @@ class CrawlerService(IService, LoggerMixin):
             pass
         try:
             field = page.get_by_label("Email", exact=False)
+            if await field.count() > 0:
+                return field
+        except Exception:
+            pass
+        try:
+            field = page.get_by_label("User ID", exact=False)
             if await field.count() > 0:
                 return field
         except Exception:
@@ -1420,19 +1706,27 @@ class CrawlerService(IService, LoggerMixin):
                 return field
         except Exception:
             pass
+        try:
+            field = page.get_by_placeholder("user", exact=False)
+            if await field.count() > 0:
+                return field
+        except Exception:
+            pass
 
         _username_selectors = [
             'input[type="email"]',
             'input[name="email"]',
-            'input[type="text"][name*="user"]',
+            'input[type="text"][name*="user" i]',
             'input[name="username"]',
-            'input[id*="user"]',
-            'input[id*="email"]',
-            'input[id*="login"]',
+            'input[id*="user" i]',
+            'input[id*="email" i]',
+            'input[id*="login" i]',
             'input[name="login"]',
-            'input[id*="username"]',
+            'input[id*="username" i]',
             'input[autocomplete="username"]',
             'input[autocomplete="email"]',
+            'input[placeholder*="email" i]',
+            'input[placeholder*="user" i]',
         ]
         for sel in _username_selectors:
             try:
@@ -1474,14 +1768,21 @@ class CrawlerService(IService, LoggerMixin):
                 return field
         except Exception:
             pass
+        try:
+            field = page.get_by_placeholder("pass", exact=False)
+            if await field.count() > 0:
+                return field
+        except Exception:
+            pass
 
         _password_selectors = [
             'input[type="password"]',
             'input[name="password"]',
-            'input[id*="pass"]',
-            'input[id*="password"]',
+            'input[id*="pass" i]',
+            'input[id*="password" i]',
             'input[autocomplete="current-password"]',
             'input[autocomplete="new-password"]',
+            'input[placeholder*="password" i]',
         ]
         for sel in _password_selectors:
             try:
@@ -1563,7 +1864,6 @@ class CrawlerService(IService, LoggerMixin):
         """Derive the application root URL from a login page URL."""
         parsed = urlparse(login_url)
         root = f"{parsed.scheme}://{parsed.netloc}/"
-        from urllib.parse import parse_qs
         qs = parse_qs(parsed.query)
         next_url = qs.get("next", [None])[0] or qs.get("redirect", [None])[0] or qs.get("return", [None])[0]
         if next_url:
@@ -1580,82 +1880,332 @@ class CrawlerService(IService, LoggerMixin):
         pre_login_url: str,
         login_url: str,
     ) -> bool:
-        """Determine whether login succeeded using multiple signals.
+        return False  # Kept for backward compat — logic moved to _submit_and_wait_for_auth
 
-        Signal 1 — URL changed: full-page redirect after login.
-        Signal 2 — Title changed: login page titles contain 'login' / 'sign in';
-                   post-login titles are different (dashboard, home, workspace).
-        Signal 3 — Login form gone: the username/password/submit fields are no
-                   longer visible on the page (SPAs that update in-place).
-        Signal 4 — Post-login UI appeared: common authenticated elements like
-                   navigation bars, sidebars, user menus, logout buttons.
+    async def _submit_and_wait_for_auth(
+        self,
+        page: Page,
+        submit_button: Locator,
+        pre_login_url: str,
+        eid: str | None,
+    ) -> dict[str, Any]:
         """
-        # Signal 1: URL changed (full-page redirect)
-        if post_login_url and post_login_url != pre_login_url:
-            parsed_pre = urlparse(pre_login_url)
-            parsed_post = urlparse(post_login_url)
-            # Ignore hash-only changes (SPA fragments)
-            if parsed_pre.path != parsed_post.path:
-                return True
-            # Query parameter changes may indicate a successful redirect
-            if parsed_pre.query != parsed_post.query:
-                return True
+        Phase 4.5 fix: Submit login form and wait for authentication to complete.
 
-        # Signal 2: title changed away from login text
+        Uses proper Playwright navigation handling, adaptive waiting, network
+        inspection, cookie/storage checks, and weighted multi-signal scoring.
+
+        Returns dict with keys: success, url, cookies, local_storage_token,
+        session_storage_token, status_code, signals, failure_reason.
+        """
+        result: dict[str, Any] = {
+            "success": False, "url": pre_login_url, "cookies": [],
+            "local_storage_token": None, "session_storage_token": None,
+            "status_code": None, "signals": {}, "failure_reason": AuthFailureReason.UNKNOWN_AUTH_ERROR,
+        }
+
+        # Track network responses for auth inspection
+        captured_responses: list[dict[str, Any]] = []
+
+        async def _on_response(response):
+            try:
+                captured_responses.append({
+                    "url": response.url,
+                    "status": response.status,
+                    "headers": dict(response.headers) if response.headers else {},
+                })
+            except Exception:
+                pass
+
+        page.on("response", _on_response)
+
+        try:
+            # Step 1: Click submit with proper navigation-aware handling
+            self.logger.info("auth_click_submit", pre_url=pre_login_url)
+            if eid:
+                await emit(eid, EventType.BROWSER_ACTION, {"action": "click", "label": "Submitting login form..."})
+
+            try:
+                async with page.expect_navigation(wait_until="domcontentloaded", timeout=30000) as nav:
+                    try:
+                        await submit_button.click(timeout=5000)
+                    except Exception:
+                        await page.keyboard.press("Enter")
+                    nav_response = await nav.value
+                    result["status_code"] = nav_response.status if nav_response else None
+                    self.logger.info("auth_navigation_completed", status=result["status_code"], url=page.url)
+                result["url"] = page.url
+            except Exception:
+                # No full page navigation — SPA, in-place, or redirect in progress
+                self.logger.info("auth_no_full_navigation", url=page.url)
+
+            # Step 2: Adaptive wait for auth completion
+            await self._wait_for_auth_completion(page, pre_login_url)
+
+            # Step 3: Capture current state
+            result["url"] = page.url
+
+            # Step 4: Inspect cookies, localStorage, sessionStorage, network
+            auth_state = await self._inspect_auth_state(page, captured_responses)
+            result.update(auth_state)
+
+            # Step 5: Multi-signal weighted scoring
+            signals = await self._evaluate_auth_signals(page, pre_login_url, result)
+            result["signals"] = signals
+            score = signals.get("score", 0)
+
+            # Step 6: Determine failure reason if applicable
+            failure_reason = self._determine_failure_reason(signals, result, captured_responses)
+            result["failure_reason"] = failure_reason
+
+            # Step 7: Verdict — need >= 3 weighted points (cookies 4, url_change 3, storage_token 4, etc)
+            if score >= 3:
+                result["success"] = True
+                self.logger.info("auth_success_detected", score=score, signals=signals)
+            else:
+                self.logger.warning("auth_failure_detected", score=score, failure_reason=failure_reason.value, signals=signals)
+
+            if eid:
+                await emit(eid, EventType.BROWSER_ACTION, {
+                    "action": "auth_check",
+                    "score": score,
+                    "success": result["success"],
+                    "failure_reason": failure_reason.value if not result["success"] else None,
+                })
+
+        finally:
+            try:
+                page.remove_listener("response", _on_response)
+            except Exception:
+                pass
+
+        return result
+
+    async def _wait_for_auth_completion(
+        self, page: Page, pre_login_url: str,
+    ) -> None:
+        """
+        Adaptive wait for authentication to finish.
+
+        Tries multiple strategies with increasing timeouts:
+        1. URL change (traditional redirect) — 8s
+        2. Password field disappearance (SPA form unmount) — 5s
+        3. Post-login UI appearance (navbar, sidebar, logout) — 5s
+        4. Network idle (all XHR/fetch completed) — 10s
+        5. Hard fallback wait — 3s
+        """
+        strategies = [
+            ("url_change", lambda: page.wait_for_url(lambda u: u != pre_login_url, timeout=8000), 0),
+            ("password_hidden", lambda: page.wait_for_selector('input[type="password"]', state="hidden", timeout=5000), 0),
+            ("post_login_ui", lambda: page.wait_for_selector(', '.join(_POST_LOGIN_UI_SELECTORS[:3]), timeout=5000), 0),
+            ("network_idle", lambda: page.wait_for_load_state("networkidle", timeout=10000), 0),
+        ]
+
+        for name, wait_fn, _ in strategies:
+            try:
+                self.logger.info("auth_wait_strategy", strategy=name)
+                await wait_fn()
+                return
+            except Exception:
+                self.logger.info("auth_wait_strategy_timeout", strategy=name)
+                continue
+
+        await page.wait_for_timeout(3000)
+
+    @staticmethod
+    async def _inspect_auth_state(
+        page: Page,
+        captured_responses: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Inspect cookies, localStorage, sessionStorage, and network responses for auth evidence."""
+        result: dict[str, Any] = {
+            "cookies": [],
+            "local_storage_token": None,
+            "session_storage_token": None,
+            "set_cookie_count": 0,
+            "auth_status_codes": [],
+        }
+
+        # Cookies
+        try:
+            cookies = await page.context.cookies()
+            result["cookies"] = [{"name": c["name"], "domain": c.get("domain", "")} for c in cookies]
+            result["set_cookie_count"] = sum(1 for r in captured_responses if "set-cookie" in r.get("headers", {}))
+        except Exception:
+            pass
+
+        # localStorage token
+        try:
+            for key in ["token", "auth_token", "access_token", "jwt", "id_token", "user"]:
+                val = await page.evaluate(f"localStorage.getItem('{key}')")
+                if val:
+                    result["local_storage_token"] = key
+                    break
+        except Exception:
+            pass
+
+        # sessionStorage token
+        try:
+            for key in ["token", "auth_token", "access_token", "jwt"]:
+                val = await page.evaluate(f"sessionStorage.getItem('{key}')")
+                if val:
+                    result["session_storage_token"] = key
+                    break
+        except Exception:
+            pass
+
+        # Auth status codes from captured responses
+        result["auth_status_codes"] = [
+            r.get("status") for r in captured_responses
+            if any(k in (r.get("url") or "").lower() for k in ("/login", "/auth", "/signin", "/oauth", "/token"))
+        ]
+
+        return result
+
+    @staticmethod
+    async def _evaluate_auth_signals(
+        page: Page,
+        pre_login_url: str,
+        auth_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Weighted multi-signal scoring for authentication success."""
+        score = 0
+        signals: dict[str, Any] = {}
+
+        # Signal 1: URL changed to non-login page (strong)
+        current_url = auth_state.get("url", pre_login_url)
+        signals["url_changed"] = current_url != pre_login_url
+        if signals["url_changed"]:
+            parsed_pre = urlparse(pre_login_url)
+            parsed_post = urlparse(current_url)
+            if parsed_pre.path != parsed_post.path:
+                score += 3
+                signals["url_path_changed"] = True
+
+        # Signal 2: Auth cookies present (strongest)
+        cookies = auth_state.get("cookies") or []
+        auth_cookie_names = {"session", "connect.sid", "auth", "token", "jwt", "access_token", "JSESSIONID", "PHPSESSID"}
+        signals["auth_cookie_found"] = any(
+            any(ak in (c.get("name") or "").lower() for ak in auth_cookie_names)
+            for c in cookies
+        )
+        if signals["auth_cookie_found"]:
+            score += 4
+
+        # Signal 3: Token in localStorage or sessionStorage (strong)
+        signals["local_storage_token"] = auth_state.get("local_storage_token")
+        signals["session_storage_token"] = auth_state.get("session_storage_token")
+        if signals["local_storage_token"] or signals["session_storage_token"]:
+            score += 4
+
+        # Signal 4: HTTP status code indicates auth success
+        status_codes = auth_state.get("auth_status_codes") or []
+        has_2xx = any(200 <= (s or 0) < 300 for s in status_codes)
+        has_302 = any((s or 0) == 302 for s in status_codes)
+        signals["auth_2xx_response"] = has_2xx
+        signals["auth_302_redirect"] = has_302
+        if has_2xx or has_302:
+            score += 2
+
+        # Signal 5: Set-Cookie headers in response
+        signals["set_cookie_present"] = auth_state.get("set_cookie_count", 0) > 0
+        if signals["set_cookie_present"]:
+            score += 2
+
+        # Signal 6: Title changed away from login
         try:
             title = (await page.title()).lower()
-            pre_login_title_keywords = {"login", "sign in", "signin", "log in", "logon"}
-            post_login_title_keywords = {"dashboard", "home", "workspace", "welcome",
-                                          "overview", "projects", "portal"}
-            if title and any(kw in title for kw in post_login_title_keywords):
-                return True
-            if title and not any(kw in title for kw in pre_login_title_keywords):
-                # Title changed but doesn't explicitly match post-login keywords —
-                # still a hint that we moved off the login page
-                pass  # weak signal; don't count alone
+            signals["title"] = title
+            signals["title_post_login"] = any(kw in title for kw in _POST_LOGIN_TITLE_KW)
+            if signals["title_post_login"]:
+                score += 2
+            elif title and not any(k in title for k in ("login", "sign in", "signin", "log in", "authenticate")):
+                score += 1
         except Exception:
             pass
 
-        # Signal 3: login form fields are no longer visible
+        # Signal 7: Password field no longer visible
         try:
-            pw_visible = await page.locator('input[type="password"]:visible').count()
-            submit_visible = await page.locator(
-                'button[type="submit"]:visible, input[type="submit"]:visible'
-            ).count()
-            username_visible = await page.locator(
-                'input[type="email"]:visible, input[name*="user"]:visible, '
-                'input[id*="user"]:visible, input[autocomplete="username"]:visible'
-            ).count()
-            if pw_visible == 0 and submit_visible == 0 and username_visible == 0:
-                return True
+            pw_count = await page.locator('input[type="password"]:visible').count()
+            signals["password_field_gone"] = pw_count == 0
+            if signals["password_field_gone"]:
+                score += 2
         except Exception:
             pass
 
-        # Signal 4: common post-login UI elements detected
+        # Signal 8: Post-login UI appeared (nav, logout, profile)
         try:
-            _post_login_selectors = [
-                'nav:visible', '[role="navigation"]:visible',
-                'aside:visible', '[class*="sidebar" i]:visible',
-                '[class*="navbar" i]:visible', '[class*="header" i]:visible',
-                'a:has-text("Logout"):visible', 'a:has-text("Log out"):visible',
-                'a:has-text("Sign out"):visible', 'button:has-text("Logout"):visible',
-                '[class*="avatar" i]:visible', '[class*="profile" i]:visible',
-                '[class*="user-menu" i]:visible', '[class*="workspace" i]:visible',
-            ]
-            detected = 0
-            for sel in _post_login_selectors[:8]:
+            ui_detected = 0
+            for sel in _POST_LOGIN_UI_SELECTORS:
                 try:
                     if await page.locator(sel).count() > 0:
-                        detected += 1
+                        ui_detected += 1
+                        if ui_detected >= 2:
+                            break
                 except Exception:
                     continue
-            if detected >= 2:
-                return True
+            signals["post_login_ui"] = ui_detected
+            if ui_detected >= 2:
+                score += 3
+            elif ui_detected >= 1:
+                score += 1
         except Exception:
             pass
 
-        # Default: login not confirmed
-        return False
+        # Signal 0 (NEGATIVE): Auth error text detected
+        try:
+            body = (await page.text_content("body", timeout=2000) or "").lower()
+            error_matched = [p for p in _AUTH_ERROR_TEXT_PATTERNS if p in body]
+            signals["auth_error_text"] = error_matched
+            if error_matched:
+                score -= 5  # Heavy penalty for detected auth error text
+        except Exception:
+            pass
+
+        # Signal 0b (NEGATIVE): aria-invalid on a form field
+        try:
+            aria_invalid = await page.locator('[aria-invalid="true"]:visible').count() > 0
+            signals["aria_invalid"] = aria_invalid
+            if aria_invalid:
+                score -= 3
+        except Exception:
+            pass
+
+        signals["score"] = max(score, 0)
+        return signals
+
+    def _determine_failure_reason(
+        self,
+        signals: dict[str, Any],
+        auth_state: dict[str, Any],
+        captured_responses: list[dict[str, Any]],
+    ) -> AuthFailureReason:
+        """Determine the most specific failure reason from available evidence."""
+        error_text = signals.get("auth_error_text") or []
+
+        if any("mfa" in e or "two-factor" in e or "verify your identity" in e for e in error_text):
+            return AuthFailureReason.MFA_REQUIRED
+        if any("captcha" in e for e in error_text):
+            return AuthFailureReason.CAPTCHA_REQUIRED
+        if any(k in " ".join(error_text) for k in ("invalid", "incorrect", "wrong", "not found", "access denied", "locked")):
+            return AuthFailureReason.INVALID_CREDENTIALS
+        if any(s == 401 for s in (auth_state.get("auth_status_codes") or [])):
+            return AuthFailureReason.AUTHORIZATION_DENIED
+        if any(s == 403 for s in (auth_state.get("auth_status_codes") or [])):
+            return AuthFailureReason.AUTHORIZATION_DENIED
+
+        # If signals look positive but score is low
+        if signals.get("auth_cookie_found") or signals.get("local_storage_token"):
+            return AuthFailureReason.LOGIN_SUCCESS_BUT_VALIDATION_FAILED
+
+        if any(s and s >= 500 for s in (auth_state.get("auth_status_codes") or [])):
+            return AuthFailureReason.NETWORK_ERROR
+
+        if not signals.get("url_changed") and not signals.get("password_field_gone"):
+            if signals.get("score", 0) <= 0:
+                return AuthFailureReason.LOGIN_TIMEOUT
+
+        return AuthFailureReason.UNKNOWN_AUTH_ERROR
 
     async def _capture_login_screenshot(self, page: Page, eid: str, url: str) -> None:
         try:

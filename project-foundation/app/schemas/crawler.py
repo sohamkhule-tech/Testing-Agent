@@ -338,8 +338,12 @@ class CrawlPackage(BaseModel):
 
     warnings: list[CrawlEvent] = Field(default_factory=list, description="Non-fatal warnings")
     errors: list[CrawlEvent] = Field(default_factory=list, description="Fatal errors")
-    
+
     statistics: CrawlStatistics | None = Field(None, description="Aggregated statistics")
+    scope_trace: list[dict] = Field(
+        default_factory=list,
+        description="Per-URL scope decisions (ALLOWED/SKIPPED) and reasons",
+    )
 
     class Config:
         populate_by_name = True

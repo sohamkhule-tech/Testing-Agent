@@ -74,6 +74,11 @@ class EventType:
     PAGE_COMPLETED             = "page_completed"
     CRAWL_COMPLETED            = "crawl_completed"
 
+    # Goal Completion Engine
+    GOAL_COMPLETED             = "goal_completed"
+    GOAL_CRITERION_MET         = "goal_criterion_met"
+    CRAWL_PHASE_CHANGED        = "crawl_phase_changed"
+
     # Inventory
     INVENTORY_STARTED       = "inventory_started"
     INVENTORY_GENERATED     = "inventory_generated"

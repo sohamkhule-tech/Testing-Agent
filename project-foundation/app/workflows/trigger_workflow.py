@@ -6,7 +6,7 @@ Complete workflow: START → Trigger → Crawler → Inventory Aggregator → Te
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.agents import CodeGenerationAgent, CrawlerAgent, TestDesignAgent, TriggerAgent
 from app.constants import RunStatus
+from app.context import AgentState, ExecutionPlan, get_context_manager
 from app.core.event_bus import EventType, emit
 from app.dependencies import get_inventory_aggregator_service, get_test_design_agent
 from app.graph import GraphState, NodeResult
@@ -37,10 +38,16 @@ class PlatformWorkflowState(GraphState):
     # Phase 5/6 — structured prompt intent and auth (never logged)
     prompt_context: dict[str, Any] | None = None   # ParsedPromptIntent serialised
     auth_context: dict[str, Any] | None = None     # SECURITY: never emit in events
-    
+
+    # Phase 1 — AgentState: canonical intent-preservation state threaded
+    # through every stage (original prompt, parsed intent, execution plan,
+    # and per-stage outputs). Added as optional fields — no breaking change.
+    agent_state: AgentState | None = None
+    execution_plan: ExecutionPlan | None = None
+
     # Trigger output
     trigger_output: dict[str, Any] | None = None
-    
+
     # Crawler output
     crawler_output: dict[str, Any] | None = None
     crawl_status: str | None = None
@@ -122,6 +129,10 @@ async def trigger_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
 
         state.mark_node_started("trigger")
 
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("trigger", "Initialising workspace and validating target URL")
+
         # Get trigger agent from dependency injection (passed via state metadata)
         trigger_agent: TriggerAgent = state.metadata.get("trigger_agent")
 
@@ -148,6 +159,9 @@ async def trigger_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
         await emit(state.run_id, EventType.RUN_METADATA_SAVED, {"run_id": state.run_id, "requested_by": state.requested_by})
 
         # Mark node completed
+        # Phase 2: record stage completion
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("trigger")
         node_result = NodeResult(
             node_name="trigger",
             status="completed",
@@ -199,6 +213,10 @@ async def crawler_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
 
         state.mark_node_started("crawler")
 
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("crawler", "Crawling application pages and discovering structure")
+
         # Get crawler agent from dependency injection
         crawler_agent: CrawlerAgent = state.metadata.get("crawler_agent")
 
@@ -208,20 +226,13 @@ async def crawler_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
         # Inject the event bus so the crawler can emit fine-grained events
         crawler_agent._event_run_id = state.run_id
 
-        # Phase 5/6: extract scope constraints and auth from prompt_context
+        # Phase 2: authoritative scope from ExecutionPlan (single source of truth).
         _scope_overrides: dict = {}
         _auth_context_dict: dict = {}
-        if state.prompt_context:
-            included_pages = state.prompt_context.get("included_pages") or []
-            # Fallback: derive URL patterns from focus_areas when no explicit includes set
-            if not included_pages:
-                focus_areas = state.prompt_context.get("focus_areas") or []
-                if focus_areas:
-                    from app.services.prompt_builder import PromptParser
-                    included_pages = PromptParser._focus_areas_to_url_patterns(focus_areas)
+        if state.execution_plan is not None:
             _scope_overrides = {
-                "include_pages": included_pages,
-                "exclude_pages": state.prompt_context.get("excluded_pages") or [],
+                "include_pages": state.execution_plan.workflow_scope.get("included_pages") or [],
+                "exclude_pages": state.execution_plan.workflow_scope.get("excluded_pages") or [],
             }
         # Load encrypted credentials from workspace
         if state.workspace_path:
@@ -237,6 +248,10 @@ async def crawler_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
                     "login_url": _login_url,
                     "auth_strategy": _loaded_auth.auth_strategy,
                 }
+                # Phase 1: mirror credentials into AgentState (in-memory only —
+                # never logged/emitted; redacted() strips them).
+                if state.agent_state is not None:
+                    state.agent_state.credentials = dict(_auth_context_dict)
 
         # Prepare input data for crawler
         input_data = {
@@ -246,6 +261,13 @@ async def crawler_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
             "trigger_output": state.trigger_output or {},
             "request_data": state.request_data or {},
             "scope_overrides": _scope_overrides,
+            # Execution Scope Enforcement: the full ExecutionPlan is the single
+            # source of truth for what the crawler may discover.
+            "execution_plan": (
+                state.execution_plan.to_serializable()
+                if state.execution_plan is not None
+                else None
+            ),
             "auth_context": _auth_context_dict,  # SECURITY: not emitted in events
         }
 
@@ -263,6 +285,9 @@ async def crawler_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
             "total_links": state.total_links,
         })
 
+        # Phase 2: record stage completion
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("crawler")
         # Mark node completed
         node_result = NodeResult(
             node_name="crawler",
@@ -321,6 +346,10 @@ async def inventory_aggregator_node(state: PlatformWorkflowState) -> PlatformWor
 
         state.mark_node_started("inventory_aggregator")
 
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("inventory_aggregator", "Aggregating crawl data into canonical inventory")
+
         from uuid import UUID
 
         service = get_inventory_aggregator_service()
@@ -329,14 +358,20 @@ async def inventory_aggregator_node(state: PlatformWorkflowState) -> PlatformWor
         workspace_path = state.workspace_path or ""
 
         excluded_modules: list[str] = []
-        if state.prompt_context and isinstance(state.prompt_context, dict):
-            excluded_modules = state.prompt_context.get("excluded_modules") or []
+        execution_scope: dict | None = None
+        # Phase 2: authoritative scope from ExecutionPlan
+        if state.execution_plan is not None:
+            excluded_modules = state.execution_plan.workflow_scope.get("excluded_modules") or []
+            # Execution Scope Enforcement: pass the full serialised ExecutionPlan
+            # so the aggregator filters pages AND elements/navigation by scope.
+            execution_scope = state.execution_plan.to_serializable()
 
         # Aggregate inventory
         inventory = await service.aggregate_and_persist(
             run_id=run_id,
             workspace_path=workspace_path,
             excluded_modules=excluded_modules,
+            execution_scope=execution_scope,
         )
 
         # Update state
@@ -356,6 +391,18 @@ async def inventory_aggregator_node(state: PlatformWorkflowState) -> PlatformWor
 
         await emit(state.run_id, EventType.INVENTORY_GENERATED, state.inventory_summary)
 
+        # Phase 1: capture inventory into AgentState so downstream stages (test
+        # design, code generation) can access it without re-reading files.
+        if state.agent_state is not None:
+            get_context_manager().capture_inventory(
+                state,
+                inventory_path=state.inventory_path,
+                summary=state.inventory_summary,
+            )
+
+        # Phase 2: record stage completion
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("inventory_aggregator")
         # Mark node completed
         node_result = NodeResult(
             node_name="inventory_aggregator",
@@ -463,6 +510,10 @@ async def test_design_node(state: PlatformWorkflowState) -> PlatformWorkflowStat
 
         state.mark_node_started("test_design")
 
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("test_design", "Analysing inventory and generating structured test plan")
+
         test_design_agent: TestDesignAgent = state.metadata.get("test_design_agent")
 
         if not test_design_agent:
@@ -475,8 +526,18 @@ async def test_design_node(state: PlatformWorkflowState) -> PlatformWorkflowStat
             "trigger_output": state.trigger_output or {},
             "crawler_output": state.crawler_output or {},
             "user_prompt": state.user_prompt,
-            # Phase 5: structured intent for PromptBuilder
-            "prompt_context": state.prompt_context,
+            # Phase 2: ExecutionPlan is the authoritative scope — no direct prompt parsing
+            "execution_plan": (
+                state.execution_plan.to_serializable()
+                if state.execution_plan is not None
+                else None
+            ),
+            # Phase 1: full AgentState (credentials redacted) for richer intent
+            "agent_state": (
+                get_context_manager().to_serializable(state)
+                if state.agent_state is not None
+                else None
+            ),
         }
 
         # Execute test design agent
@@ -501,7 +562,7 @@ async def test_design_node(state: PlatformWorkflowState) -> PlatformWorkflowStat
         if test_plan_path:
             import json as _json
             try:
-                with open(test_plan_path, "r") as f:
+                with open(test_plan_path) as f:
                     test_plan_data = _json.load(f)
 
                 modules_data = test_plan_data.get("modules", [])
@@ -595,6 +656,14 @@ async def test_design_node(state: PlatformWorkflowState) -> PlatformWorkflowStat
             "summary": result.get("message", ""),
         }
 
+        # Phase 1: capture test plan into AgentState for review + codegen
+        if state.agent_state is not None:
+            get_context_manager().capture_test_plan(
+                state,
+                path=state.test_plan_path,
+                summary=state.test_plan_summary,
+            )
+
         await emit(state.run_id, EventType.TEST_PLAN_GENERATED, {
             "scenario_count": result.get("scenario_count", 0),
             "test_plan_path": state.test_plan_path,
@@ -602,6 +671,9 @@ async def test_design_node(state: PlatformWorkflowState) -> PlatformWorkflowStat
 
         await emit(state.run_id, EventType.ANALYSIS_PROGRESS, {"phase": "complete", "progress": 100, "label": "Test plan ready for review."})
 
+        # Phase 2: record stage completion
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("test_design")
         # Mark node completed
         node_result = NodeResult(
             node_name="test_design",
@@ -659,6 +731,10 @@ async def human_review_node(state: PlatformWorkflowState) -> PlatformWorkflowSta
 
         state.mark_node_started("human_review")
 
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("human_review", "Reviewing generated test plan")
+
         from app.dependencies import get_human_review_service
         from app.schemas.review import ReviewRequest
 
@@ -691,6 +767,14 @@ async def human_review_node(state: PlatformWorkflowState) -> PlatformWorkflowSta
         state.rejected_scenarios = result.get("rejected_scenarios", 0)
         state.total_scenarios = result.get("total_scenarios", 0)
 
+        # Phase 1: capture the review outcome while preserving the original
+        # prompt, parsed intent, and execution plan inside AgentState.
+        if state.agent_state is not None:
+            get_context_manager().capture_review(state, review_result=result)
+
+        # Phase 2: record stage completion
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("human_review")
         # Mark node completed
         node_result = NodeResult(
             node_name="human_review",
@@ -744,17 +828,21 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
     """
     import time
     node_start_time = time.time()
-    
+
     try:
         logger.info("code_generation_node_started", run_id=state.run_id, timestamp=time.time())
         await emit(state.run_id, EventType.STAGE_STARTED, {
             "stage": "code_generation",
             "label": "Code Generation",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
 
         state.mark_node_started("code_generation")
-        
+
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("code_generation", "Generating Playwright test project from approved plan")
+
         # STEP 1: Verify agent injection
         step_start = time.time()
         logger.info("code_generation_step_1_checking_agent", run_id=state.run_id)
@@ -775,9 +863,9 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
                 "stage": "agent_initialization",
             })
             raise ValueError(error_msg)
-        
+
         logger.info("code_generation_step_1_complete", run_id=state.run_id, duration=time.time() - step_start)
-        
+
         # STEP 2: Prepare input data
         step_start = time.time()
         logger.info("code_generation_step_2_preparing_input", run_id=state.run_id)
@@ -786,11 +874,11 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
             "current_step": "preparing_input",
             "label": "Loading test plan and configuration...",
         })
-        
-        # Phase 6: pass output_preferences so IR agent can apply code-style hints
+
+        # Phase 2: output preferences from ExecutionPlan (single source of truth)
         _output_prefs: list[str] = []
-        if state.prompt_context:
-            _output_prefs = state.prompt_context.get("output_preferences", [])
+        if state.execution_plan is not None:
+            _output_prefs = state.execution_plan.workflow_scope.get("output_preferences") or []
 
         # Extract real target base_url from run request data
         _base_url = "http://localhost:3000"  # fallback
@@ -803,20 +891,38 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         except Exception:
             pass
 
+        # Phase 1: give code generation the full preserved context — original
+        # prompt, execution plan, approved test plan, inventory, and agent state.
+        _plan_serialized = (
+            state.execution_plan.to_serializable()
+            if state.execution_plan is not None
+            else None
+        )
+        _agent_ctx = (
+            get_context_manager().to_serializable(state)
+            if state.agent_state is not None
+            else None
+        )
+
         input_data = {
             "run_id": state.run_id,
             "workspace_path": state.workspace_path,
             "approved_test_plan_path": state.approved_test_plan_path,
             "base_url": _base_url,
             "output_preferences": _output_prefs,
+            # Phase 1: preserved context
+            "original_prompt": state.user_prompt,
+            "execution_plan": _plan_serialized,
+            "inventory_path": state.inventory_path,
+            "agent_context": _agent_ctx,
         }
-        
-        logger.info("code_generation_step_2_complete", 
+
+        logger.info("code_generation_step_2_complete",
                    run_id=state.run_id,
                    workspace_path=state.workspace_path,
                    approved_plan=state.approved_test_plan_path,
                    duration=time.time() - step_start)
-        
+
         # STEP 3: Execute code generation with timeout
         step_start = time.time()
         logger.info("code_generation_step_3_executing_agent", run_id=state.run_id)
@@ -831,13 +937,13 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         # Ceiling: 1800s = 30 min. Adjust via CODE_GENERATION_TIMEOUT_SECONDS env var.
         import os as _os
         _cg_timeout = int(_os.environ.get("CODE_GENERATION_TIMEOUT_SECONDS", "1800"))
-        
+
         logger.info("code_generation_timeout_set", run_id=state.run_id, timeout_seconds=_cg_timeout)
-        
+
         try:
             result = await asyncio.wait_for(code_gen_agent.execute(input_data), timeout=_cg_timeout)
             logger.info("code_generation_step_3_complete", run_id=state.run_id, duration=time.time() - step_start)
-        except asyncio.TimeoutError as timeout_err:
+        except TimeoutError as timeout_err:
             elapsed = time.time() - step_start
             error_msg = f"Code generation timed out after {elapsed:.1f}s (limit: {_cg_timeout}s)"
             logger.error("code_generation_timeout", run_id=state.run_id, elapsed=elapsed, limit=_cg_timeout)
@@ -860,7 +966,7 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         # STEP 4: Update state with results
         step_start = time.time()
         logger.info("code_generation_step_4_updating_state", run_id=state.run_id)
-        
+
         state.generated_project_path = result.get("project_path")
         state.generated_tests_path = result.get("project_path")  # Same as project path
         state.code_generation_metadata_path = result.get("metadata_path")
@@ -872,8 +978,13 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         state.validation_status = result.get("validation_status")
         state.validation_errors = result.get("validation_errors", 0)
         state.validation_warnings = result.get("validation_warnings", 0)
-        
-        logger.info("code_generation_step_4_complete", 
+
+        # Phase 1: capture code-generation outputs (IR, project, artifacts)
+        # into AgentState for execution + reporting.
+        if state.agent_state is not None:
+            get_context_manager().capture_code_generation(state, result=result)
+
+        logger.info("code_generation_step_4_complete",
                    run_id=state.run_id,
                    files_generated=result.get("files_generated", 0),
                    duration=time.time() - step_start)
@@ -881,14 +992,19 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         # STEP 5: Mark completion
         step_start = time.time()
         logger.info("code_generation_step_5_finalizing", run_id=state.run_id)
-        
+
+        # Phase 2: record stage completion
+        cg_duration = time.time() - node_start_time
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("code_generation", duration_seconds=cg_duration)
+
         node_result = NodeResult(
             node_name="code_generation",
             status="completed",
             data=result,
         )
         state.mark_node_completed("code_generation", node_result)
-        
+
         total_duration = time.time() - node_start_time
         await emit(state.run_id, EventType.STAGE_COMPLETED, {
             "stage": "code_generation",
@@ -909,7 +1025,7 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
 
     except Exception as e:
         total_duration = time.time() - node_start_time
-        logger.error("code_generation_node_failed", 
+        logger.error("code_generation_node_failed",
                     run_id=state.run_id,
                     error=str(e),
                     error_type=type(e).__name__,
@@ -953,10 +1069,14 @@ async def execution_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
 
         state.mark_node_started("execution")
 
+        # Phase 2: record stage entry into AgentState
+        if state.agent_state is not None:
+            state.agent_state.record_stage_entry("execution", "Executing generated Playwright tests")
+
         # FAIL FAST: Verify code generation completed successfully before attempting execution
         if "code_generation" not in state.completed_nodes:
             raise ValueError("Code generation stage did not complete - execution cannot proceed")
-        
+
         code_gen_result = state.node_results.get("code_generation")
         if not code_gen_result or code_gen_result.status != "completed":
             raise ValueError(
@@ -991,11 +1111,23 @@ async def execution_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
         if not project_path:
             raise ValueError("No generated project path found")
 
+        # Phase 2.5/Execution Scope: Playwright execution enforcement — only
+        # execute scenarios within the approved ExecutionPlan scope (modules +
+        # coverage), using a --grep filter. No fallback to "run everything".
+        from app.execution_scope.resolver import build_scope_grep
+        from app.schemas.execution import ExecutionConfig
+        _exec_config = ExecutionConfig()
+        if state.execution_plan is not None:
+            _grep = build_scope_grep(state.execution_plan.to_serializable())
+            if _grep:
+                _exec_config.grep = _grep
+                logger.info("execution_scope_enforcement", run_id=state.run_id, grep=_exec_config.grep)
+
         # Execute tests
         result = await execution_service.execute_tests(
             run_id=state.run_id,
             project_path=project_path,
-            config=None,  # Use default config
+            config=_exec_config,
             skip_install=False,
         )
 
@@ -1028,6 +1160,40 @@ async def execution_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
             state.artifacts = exec_summ.get("artifacts")
             state.failure_summary = result.get("failure_summary")
             state.retry_summary = result.get("retry_summary")
+
+        # Phase 1: capture execution outcomes into AgentState for reporting.
+        if state.agent_state is not None:
+            get_context_manager().capture_execution(state, result=result)
+
+        # Phase 2.5: comprehensive goal satisfaction tracking
+        if state.agent_state is not None:
+            state.agent_state.record_stage_done("execution", duration_seconds=state.execution_duration)
+            goal_text = (state.execution_plan.goal if state.execution_plan else None) or "Execution completed"
+            tasks_total = state.tests_total
+            tasks_done = state.tests_passed + state.tests_failed
+            tasks_skipped = state.tests_skipped
+            goal_met = state.tests_failed == 0 and state.tests_total > 0
+            blocked = tasks_skipped > 0 and tasks_done == 0
+            state.agent_state.update_goal_satisfaction(
+                goal=goal_text,
+                tasks_done=tasks_done,
+                tasks_total=tasks_total,
+                completed=goal_met,
+                reason=(
+                    "All tests passed" if goal_met
+                    else f"{state.tests_failed}/{state.tests_total} tests failed" if state.tests_total > 0
+                    else "No tests executed" if tasks_skipped > 0
+                    else "Skipped or blocked" if blocked
+                    else None
+                ),
+            )
+            # Record execution history entry
+            state.agent_state.record_executed_action(
+                stage="execution",
+                task="Execute tests",
+                capability="execute_tests",
+                status="completed" if goal_met else "failed",
+            )
 
         node_result = NodeResult(
             node_name="execution",
@@ -1071,6 +1237,162 @@ async def execution_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
 
 
 STAGE_ORDER = ["trigger", "crawler", "inventory_aggregator", "test_design", "human_review", "code_generation", "execution"]
+
+
+def _extract_agent_summary(final_state: Any) -> dict[str, Any]:
+    """Phase 2.5: extract goal-completion + task tracking + stage progress for reporting."""
+    agent_state = getattr(final_state, "agent_state", None)
+    if agent_state is not None:
+        return {
+            "goal_achieved": agent_state.goal_achieved,
+            "goal_progress": agent_state.goal_progress,
+            "goal_completion": dict(agent_state.goal_completion),
+            "goal_status": agent_state.goal_status,
+            "execution_goal": agent_state.execution_goal,
+            "current_stage": agent_state.current_stage,
+            "current_task": agent_state.current_task,
+            "completed_tasks": list(agent_state.completed_tasks),
+            "progress": agent_state.progress,
+            "failures": list(agent_state.failures),
+            "warnings": list(agent_state.warnings),
+            "execution_time": dict(agent_state.execution_time),
+            "excluded_modules": list(agent_state.excluded_modules),
+            "included_modules": list(agent_state.included_modules),
+            "business_objective": agent_state.business_objective,
+            "task_status": dict(agent_state.task_status),
+            "planner_revision": agent_state.planner_revision,
+            "clarification_required": agent_state.clarification_required,
+            "selected_capability": agent_state.selected_capability,
+            "execution_history_count": len(agent_state.execution_history),
+            "reasoning_trace": getattr(getattr(final_state, "execution_plan", None), "reasoning_trace", None),
+        }
+    return {}
+
+
+def _build_agent_context(
+    *,
+    run_id: str,
+    request_data: dict[str, Any] | None,
+    user_prompt: str | None,
+    prompt_context: dict[str, Any] | None,
+    requested_by: str | None = None,
+    reasoning_result: Any | None = None,
+) -> tuple[AgentState, ExecutionPlan]:
+    """
+    Build the AgentState + ExecutionPlan for a workflow entrypoint.
+
+    Phase 4.5: when ``reasoning_result`` is provided, the plan is enriched
+    with business intent, constraints, strategy, and stopping conditions.
+    When None, the legacy path (Phase 1) is used for backward compat.
+    """
+    cm = get_context_manager()
+    agent_state = cm.build_initial(
+        run_id=run_id,
+        request_data=request_data,
+        requested_by=requested_by,
+        user_prompt=user_prompt,
+        prompt_context=prompt_context,
+    )
+    plan = cm.planner.build(
+        user_prompt=user_prompt,
+        parsed_intent=agent_state.parsed_intent,
+        request_data=request_data,
+        agent_state=agent_state,
+    )
+    if reasoning_result is not None:
+        plan.enrich_from_reasoning(reasoning_result)
+        from app.reasoning.constraints import ConstraintResolver
+        ConstraintResolver().apply_to_plan(plan, reasoning_result)
+        agent_state.merge(
+            business_objective=getattr(reasoning_result.business_intent, "goal", None),
+            priorities=list(dict.fromkeys(reasoning_result.testing_intent.strategies + agent_state.priorities)),
+        )
+        agent_state.clarification_required = plan.clarification_needed is not None
+    return agent_state, plan
+
+
+async def _reason_then_build_context(
+    *,
+    run_id: str,
+    request_data: dict[str, Any] | None,
+    user_prompt: str | None,
+    prompt_context: dict[str, Any] | None,
+    requested_by: str | None = None,
+    llm_client: Any | None = None,
+) -> tuple[AgentState, ExecutionPlan]:
+    """
+    Phase 4.5: reasoning-first context construction.
+
+    Runs ReasoningEngine.reason() before ExecutionPlanner.build(). The plan
+    is always enriched with business intent, constraints, and strategy.
+    """
+    from app.reasoning.constraints import ConstraintResolver
+    from app.reasoning.engine import ReasoningEngine
+
+    cm = get_context_manager()
+    agent_state = cm.build_initial(
+        run_id=run_id,
+        request_data=request_data,
+        requested_by=requested_by,
+        user_prompt=user_prompt,
+        prompt_context=prompt_context,
+    )
+
+    engine = ReasoningEngine(llm_client=llm_client)
+    reasoning = await engine.reason(user_prompt or "", agent_state=agent_state)
+
+    resolver = ConstraintResolver()
+    resolver.apply_to_agent_state(agent_state, reasoning)
+
+    plan = cm.planner.build(
+        user_prompt=user_prompt,
+        parsed_intent=agent_state.parsed_intent,
+        request_data=request_data,
+        agent_state=agent_state,
+    )
+    plan.enrich_from_reasoning(reasoning)
+    resolver.apply_to_plan(plan, reasoning)
+    plan.reasoning_trace = engine.generate_trace(reasoning, run_id, user_prompt or "").trace_summary()
+    agent_state.merge(
+        business_objective=reasoning.business_intent.goal,
+        priorities=list(dict.fromkeys(reasoning.testing_intent.strategies + agent_state.priorities)),
+    )
+    agent_state.clarification_required = plan.clarification_needed is not None
+    return agent_state, plan
+
+
+async def apply_conversational_refinement(
+    refinement_prompt: str,
+    existing_plan: ExecutionPlan,
+    agent_state: AgentState,
+    run_id: str,
+) -> tuple[AgentState, ExecutionPlan]:
+    """
+    Phase 4.5: update an existing ExecutionPlan from a conversational refinement
+    without a full restart. Uses the ReasoningEngine to parse the update, then
+    applies it to the plan via ConstraintResolver.resolve_conversation_update.
+    """
+    from app.reasoning.constraints import ConstraintResolver
+    from app.reasoning.engine import ReasoningEngine
+
+    engine = ReasoningEngine(llm_client=None)
+    reasoning = engine._deterministic_reason(refinement_prompt)
+
+    existing_plan.snapshot_revision()
+    existing_plan.enrich_from_reasoning(reasoning)
+
+    resolver = ConstraintResolver()
+    resolver.apply_to_plan(existing_plan, reasoning)
+    resolver.apply_to_agent_state(agent_state, reasoning)
+
+    # Rebuild execution graph to reflect new tasks
+    from app.execution_engine.execution_graph import get_execution_graph
+    graph = get_execution_graph()
+    graph.rebuild(existing_plan)
+
+    agent_state.merge(planner_revision=len(existing_plan.revisions))
+    logger.info("conversational_refinement_applied", run_id=run_id, prompt=refinement_prompt[:80])
+    return agent_state, existing_plan
 
 
 def _checkpoint_path(workspace: str) -> Path:
@@ -1198,10 +1520,10 @@ def create_post_review_workflow() -> StateGraph:
     workflow.add_node("human_review", human_review_node)
     workflow.add_node("code_generation", code_generation_node)
     workflow.add_node("execution", execution_node)
-    
+
     workflow.add_edge(START, "human_review")
     workflow.add_edge("human_review", "code_generation")
-    
+
     # Conditional edge: only proceed to execution if code generation succeeded
     def route_after_code_generation(state: PlatformWorkflowState) -> str:
         """
@@ -1210,7 +1532,7 @@ def create_post_review_workflow() -> StateGraph:
         This prevents execution from running when code generation fails.
         """
         code_gen_result = state.node_results.get("code_generation")
-        
+
         # If code generation failed or has errors, stop the workflow
         if state.errors or (code_gen_result and code_gen_result.status == "failed"):
             logger.warning(
@@ -1219,7 +1541,7 @@ def create_post_review_workflow() -> StateGraph:
                 errors=state.errors
             )
             return END
-        
+
         # If code generation completed successfully, proceed to execution
         if code_gen_result and code_gen_result.status == "completed":
             logger.info(
@@ -1227,7 +1549,7 @@ def create_post_review_workflow() -> StateGraph:
                 run_id=state.run_id
             )
             return "execution"
-        
+
         # Default: stop if status is unclear
         logger.warning(
             "workflow_stopping_unclear_code_generation_status",
@@ -1235,7 +1557,7 @@ def create_post_review_workflow() -> StateGraph:
             status=code_gen_result.status if code_gen_result else "unknown"
         )
         return END
-    
+
     workflow.add_conditional_edges(
         "code_generation",
         route_after_code_generation,
@@ -1244,7 +1566,7 @@ def create_post_review_workflow() -> StateGraph:
             END: END,
         }
     )
-    
+
     workflow.add_edge("execution", END)
     compiled = workflow.compile()
     logger.info("post_review_workflow_created")
@@ -1264,14 +1586,14 @@ def create_unified_workflow() -> StateGraph:
     workflow.add_node("human_review", _with_checkpoint(human_review_node, "human_review"))
     workflow.add_node("code_generation", _with_checkpoint(code_generation_node, "code_generation"))
     workflow.add_node("execution", _with_checkpoint(execution_node, "execution"))
-    
+
     workflow.add_edge(START, "trigger")
     workflow.add_edge("trigger", "crawler")
     workflow.add_edge("crawler", "inventory_aggregator")
     workflow.add_edge("inventory_aggregator", "test_design")
     workflow.add_edge("test_design", "human_review")
     workflow.add_edge("human_review", "code_generation")
-    
+
     # Conditional edge: only proceed to execution if code generation succeeded
     def route_after_code_generation(state: PlatformWorkflowState) -> str:
         """Stop workflow if code generation fails."""
@@ -1281,7 +1603,7 @@ def create_unified_workflow() -> StateGraph:
         if code_gen_result and code_gen_result.status == "completed":
             return "execution"
         return END
-    
+
     workflow.add_conditional_edges(
         "code_generation",
         route_after_code_generation,
@@ -1290,7 +1612,7 @@ def create_unified_workflow() -> StateGraph:
             END: END,
         }
     )
-    
+
     workflow.add_edge("execution", END)
     compiled = workflow.compile()
     logger.info("unified_workflow_created")
@@ -1309,8 +1631,6 @@ async def execute_resume_workflow(
     test_design_agent: TestDesignAgent | None = None,
     code_generation_agent: CodeGenerationAgent | None = None,
 ) -> dict[str, Any]:
-    from app.dependencies import get_human_review_service
-    from app.schemas.review import ReviewRequest
 
     workflow = create_unified_workflow()
 
@@ -1326,10 +1646,28 @@ async def execute_resume_workflow(
         metadata["code_generation_agent"] = code_generation_agent
 
     cp = _load_checkpoint(workspace_path)
+    # Phase 4.5: reasoning-first — never build plan without reasoning
+    agent_state, execution_plan = await _reason_then_build_context(
+        run_id=run_id,
+        request_data=request_data or {},
+        user_prompt=user_prompt,
+        prompt_context=prompt_context,
+        requested_by=requested_by,
+    )
+    # Phase 2.5: return NeedsClarification immediately
+    if execution_plan.clarification_needed is not None:
+        logger.info("resume_workflow_clarification_needed", run_id=run_id)
+        return {
+            "success": False, "run_id": run_id, "status": "needs_clarification",
+            "clarification": execution_plan.clarification_needed.model_dump(mode="json"),
+            "agent_summary": {},
+        }
     initial_state = PlatformWorkflowState(
         run_id=run_id, status=RunStatus.RUNNING, request_data=request_data or {},
         requested_by=requested_by, workspace_path=workspace_path,
         user_prompt=user_prompt, prompt_context=prompt_context,
+        agent_state=agent_state,
+        execution_plan=execution_plan,
         metadata=metadata,
     )
     initial_state.test_plan_path = f"{workspace_path}/contracts/test-plan.json"
@@ -1353,10 +1691,95 @@ async def execute_resume_workflow(
         return {"success": not errors, "run_id": run_id, "status": status.value if hasattr(status, "value") else str(status),
                 "errors": errors,
                 "workspace_path": workspace_path,
+                "agent_summary": _extract_agent_summary(final_state),
                 "completed_stages": final_state.get("completed_nodes", cp.get("completed_stages", []))}
     return {"success": not final_state.errors, "run_id": run_id,
             "status": str(final_state.status), "errors": final_state.errors,
+            "agent_summary": _extract_agent_summary(final_state),
             "completed_stages": final_state.completed_nodes}
+
+
+def _build_pre_review_result(
+    final_state: "PlatformWorkflowState | dict[str, Any]",
+    run_id: str,
+    status: Any,
+) -> dict[str, Any]:
+    """Build the pre-review workflow result reflecting the actual outcome.
+
+    On success the run is parked for human review (``status="awaiting_review"``).
+    On failure the result carries ``success=False``, the real error message, and
+    the failing stage so callers never mistake a failed run for one awaiting
+    review — while preserving crawler/inventory artifacts produced upstream.
+    """
+    if isinstance(final_state, dict):
+        nr = final_state.get("node_results", {})
+        errors = list(final_state.get("errors") or [])
+
+        def _gd(k: str) -> dict[str, Any]:
+            r = nr.get(k, {})
+            if isinstance(r, dict):
+                return r.get("data", {}) or {}
+            return getattr(r, "data", {}) or {}
+
+        base = {
+            "success": True,
+            "status": "awaiting_review",
+            "run_id": final_state.get("run_id", run_id),
+            "workspace_path": final_state.get("workspace_path"),
+            "errors": errors,
+            "pages_visited": final_state.get("pages_visited", 0),
+            "total_links": final_state.get("total_links", 0),
+            "inventory_path": final_state.get("inventory_path"),
+            "inventory_summary": final_state.get("inventory_summary"),
+            "test_plan_path": final_state.get("test_plan_path"),
+            "test_plan_summary": final_state.get("test_plan_summary"),
+            "agent_summary": _extract_agent_summary(final_state),
+            "trigger": _gd("trigger"),
+            "crawler": _gd("crawler"),
+            "inventory": _gd("inventory_aggregator"),
+            "test_plan": _gd("test_design"),
+        }
+        failed_stage = None
+        for name, r in nr.items():
+            r_status = r.get("status") if isinstance(r, dict) else getattr(r, "status", None)
+            if r_status == "failed":
+                failed_stage = name
+                break
+    else:
+        errors = list(final_state.errors or [])
+        td = final_state.node_results.get("test_design")
+        base = {
+            "success": True,
+            "status": "awaiting_review",
+            "run_id": final_state.run_id,
+            "workspace_path": final_state.workspace_path,
+            "errors": errors,
+            "pages_visited": final_state.pages_visited,
+            "total_links": final_state.total_links,
+            "inventory_path": final_state.inventory_path,
+            "inventory_summary": final_state.inventory_summary,
+            "test_plan_path": final_state.test_plan_path,
+            "test_plan_summary": final_state.test_plan_summary,
+            "agent_summary": _extract_agent_summary(final_state),
+            "trigger": getattr(final_state.node_results.get("trigger"), "data", {}) or {},
+            "crawler": getattr(final_state.node_results.get("crawler"), "data", {}) or {},
+            "inventory": getattr(final_state.node_results.get("inventory_aggregator"), "data", {}) or {},
+            "test_plan": getattr(td, "data", {}) or {},
+        }
+        failed_stage = None
+        for name, res in final_state.node_results.items():
+            if res.status == "failed":
+                failed_stage = name
+                break
+
+    status_value = getattr(status, "value", None) or status
+    is_failed = status_value == RunStatus.FAILED.value or bool(errors) or failed_stage is not None
+    if is_failed:
+        base["success"] = False
+        base["status"] = str(status_value)
+        base["error"] = errors[-1] if errors else f"Workflow failed at {failed_stage or 'unknown'} stage"
+        base["failed_stage"] = failed_stage or "test_design"
+    return base
 
 
 async def execute_platform_workflow(
@@ -1375,38 +1798,34 @@ async def execute_platform_workflow(
         test_design_agent = get_test_design_agent()
     workflow = create_platform_workflow()
     run_id = run_id or generate_uuid()
+    # Phase 4.5: reasoning-first
+    agent_state, execution_plan = await _reason_then_build_context(
+        run_id=str(run_id),
+        request_data=request_data,
+        user_prompt=user_prompt,
+        prompt_context=prompt_context,
+        requested_by=requested_by,
+    )
+    if execution_plan.clarification_needed is not None:
+        logger.info("execute_platform_workflow_clarification_needed", run_id=run_id)
+        return {
+            "success": False, "status": "needs_clarification", "run_id": str(run_id),
+            "clarification": execution_plan.clarification_needed.model_dump(mode="json"),
+        }
     initial_state = PlatformWorkflowState(
         run_id=str(run_id), status=RunStatus.PENDING, request_data=request_data,
         requested_by=requested_by, workspace_path=workspace_path or "",
         user_prompt=user_prompt,
         prompt_context=prompt_context,
+        agent_state=agent_state,
+        execution_plan=execution_plan,
         metadata={"trigger_agent": trigger_agent, "crawler_agent": crawler_agent, "test_design_agent": test_design_agent},
     )
     logger.info("workflow_started", run_id=run_id)
     final_state = await workflow.ainvoke(initial_state)
     status = final_state.get("status") if isinstance(final_state, dict) else final_state.status
     logger.info("workflow_completed_pre_review", run_id=run_id, status=status)
-    if isinstance(final_state, dict):
-        nr = final_state.get("node_results", {})
-        def _gd(k):
-            r = nr.get(k, {}); return r.get("data", {}) if isinstance(r, dict) else getattr(r, "data", {}) if r else {}
-        return {"success": True, "status": "awaiting_review", "run_id": final_state.get("run_id", run_id),
-            "workspace_path": final_state.get("workspace_path"), "errors": final_state.get("errors", []),
-            "pages_visited": final_state.get("pages_visited", 0), "total_links": final_state.get("total_links", 0),
-            "inventory_path": final_state.get("inventory_path"), "inventory_summary": final_state.get("inventory_summary"),
-            "test_plan_path": final_state.get("test_plan_path"), "test_plan_summary": final_state.get("test_plan_summary"),
-            "trigger": _gd("trigger"), "crawler": _gd("crawler"), "inventory": _gd("inventory_aggregator"), "test_plan": _gd("test_design")}
-    else:
-        td = final_state.node_results.get("test_design")
-        return {"success": True, "status": "awaiting_review", "run_id": final_state.run_id,
-            "workspace_path": final_state.workspace_path, "errors": final_state.errors,
-            "pages_visited": final_state.pages_visited, "total_links": final_state.total_links,
-            "inventory_path": final_state.inventory_path, "inventory_summary": final_state.inventory_summary,
-            "test_plan_path": final_state.test_plan_path, "test_plan_summary": final_state.test_plan_summary,
-            "trigger": final_state.node_results.get("trigger").data if final_state.node_results.get("trigger") else {},
-            "crawler": final_state.node_results.get("crawler").data if final_state.node_results.get("crawler") else {},
-            "inventory": final_state.node_results.get("inventory_aggregator").data if final_state.node_results.get("inventory_aggregator") else {},
-            "test_plan": td.data if td else {}}
+    return _build_pre_review_result(final_state, str(run_id), status)
 
 
 async def continue_platform_workflow(
@@ -1414,18 +1833,21 @@ async def continue_platform_workflow(
     code_generation_agent: CodeGenerationAgent | None = None,
     reviewer_name: str = "user",
 ) -> dict[str, Any]:
-    from app.dependencies import get_human_review_service, get_trigger_service
-    from app.schemas.review import ReviewRequest
     from uuid import UUID
 
-    # Reload prompt_context persisted at run-start so code generation
-    # receives output_preferences even after a server restart (S5).
+    from app.dependencies import get_human_review_service, get_trigger_service
+    from app.schemas.review import ReviewRequest
+
+    # Phase 2.5: reload prompt + agent_state from persisted entity fields,
+    # not from prompt_context dict's raw_text (which may be stale).
     prompt_context: dict[str, Any] | None = None
     request_data: dict[str, Any] | None = None
+    _raw_prompt: str | None = None
     try:
         trigger_service = get_trigger_service()
         run_entity = await trigger_service.get_run(UUID(run_id))
         prompt_context = getattr(run_entity, "prompt_context_json", None) or None
+        _raw_prompt = getattr(run_entity, "user_prompt_text", None) or (prompt_context or {}).get("raw_text") or None
         # Load original request_data so base_url is passed to IR generation
         _trr = getattr(run_entity, "test_run_request", None)
         if _trr and isinstance(_trr, dict):
@@ -1440,13 +1862,30 @@ async def continue_platform_workflow(
         logger.warning("continue_workflow_prompt_context_load_failed", run_id=run_id)
 
     workflow = create_post_review_workflow()
+    # Phase 4.5: reasoning-first
+    agent_state, execution_plan = await _reason_then_build_context(
+        run_id=str(run_id),
+        request_data=request_data,
+        user_prompt=_raw_prompt,
+        prompt_context=prompt_context,
+        requested_by=requested_by,
+    )
+    if execution_plan.clarification_needed is not None:
+        logger.info("continue_workflow_clarification_needed", run_id=run_id)
+        return {
+            "success": False, "status": "needs_clarification", "run_id": str(run_id),
+            "clarification": execution_plan.clarification_needed.model_dump(mode="json"),
+        }
     initial_state = PlatformWorkflowState(
         run_id=str(run_id), status=RunStatus.PENDING, workspace_path=workspace_path,
         requested_by=requested_by,
         prompt_context=prompt_context,
         request_data=request_data,
+        agent_state=agent_state,
+        execution_plan=execution_plan,
         metadata={"code_generation_agent": code_generation_agent},
     )
+    initial_state.request_data = request_data
     initial_state.test_plan_path = f"{workspace_path}/contracts/test-plan.json"
 
     review_service = get_human_review_service()
@@ -1495,6 +1934,7 @@ async def continue_platform_workflow(
             "tests_passed": final_state.get("tests_passed", 0),
             "tests_failed": final_state.get("tests_failed", 0),
             "pass_rate": final_state.get("pass_rate", 0.0),
+            "agent_summary": _extract_agent_summary(final_state),
             "review": _gd("human_review"), "code_generation": _gd("code_generation"), "execution": _gd("execution")}
     else:
         return {"success": final_state.status == RunStatus.COMPLETED,
@@ -1512,6 +1952,7 @@ async def continue_platform_workflow(
             "execution_duration": final_state.execution_duration,
             "tests_total": final_state.tests_total, "tests_passed": final_state.tests_passed,
             "tests_failed": final_state.tests_failed, "pass_rate": final_state.pass_rate,
+            "agent_summary": _extract_agent_summary(final_state),
             "review": final_state.node_results.get("human_review").data if final_state.node_results.get("human_review") else {},
             "code_generation": final_state.node_results.get("code_generation").data if final_state.node_results.get("code_generation") else {},
             "execution": final_state.node_results.get("execution").data if final_state.node_results.get("execution") else {}}

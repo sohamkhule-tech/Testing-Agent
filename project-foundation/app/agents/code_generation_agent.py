@@ -127,6 +127,17 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
             overwrite = input_data.get("overwrite", False)
             run_id_str = str(run_id) if run_id else None
 
+            # Phase 1: preserved context threaded through the workflow — the
+            # original prompt, the execution plan, the inventory, and the
+            # serialised AgentState (credentials already redacted). Recorded
+            # in the generation metadata for traceability.
+            context_snapshot = {
+                "original_prompt": input_data.get("original_prompt"),
+                "execution_plan": input_data.get("execution_plan"),
+                "inventory_path": input_data.get("inventory_path"),
+                "agent_context": input_data.get("agent_context"),
+            }
+
             if not workspace_path:
                 raise AgentExecutionError("workspace_path is required")
             if not approved_plan_path:
@@ -177,7 +188,17 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
             })
             
             approved_plan = await self._load_approved_plan(approved_plan_path)
-            
+
+            # Execution Scope Enforcement (Phase 6): only scenarios within
+            # ExecutionPlan scope may be turned into code. Filter the approved
+            # plan through the same resolver used by crawler/inventory/test
+            # design so codegen never receives out-of-scope scenarios.
+            execution_plan_for_scope = input_data.get("execution_plan")
+            if execution_plan_for_scope:
+                from app.execution_scope.filtering import filter_approved_plan_object
+
+                filter_approved_plan_object(approved_plan, execution_plan_for_scope)
+
             load_duration = time.time() - step_start
             self.logger.info("codegen_step_4_complete", 
                            run_id=run_id,
@@ -383,6 +404,7 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
                 validation_result=validation_result,
                 generated_files=generated_files,
                 refinement_attempts=ir_result["refinement_attempts"],
+                context_snapshot=context_snapshot,
             )
 
             metadata_path = output_path / "code-generation-metadata.json"
@@ -513,6 +535,7 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
         validation_result: Any,
         generated_files: dict[str, Path],
         refinement_attempts: int,
+        context_snapshot: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Generate metadata for code generation.
@@ -522,11 +545,13 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
             validation_result: IR validation result
             generated_files: Dictionary of generated files
             refinement_attempts: Number of IR refinement attempts
+            context_snapshot: Phase 1 preserved context (original prompt,
+                execution plan, inventory, agent state) recorded for traceability.
 
         Returns:
             Metadata dictionary
         """
-        return {
+        metadata: dict[str, Any] = {
             "generator": "IR-driven Template Engine",
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "ir_version": ir.metadata.ir_version,
@@ -551,6 +576,14 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
                 if issue.severity == "warning"
             ][:10],  # Limit to 10 warnings
         }
+        # Phase 1: record the preserved context (original prompt, execution
+        # plan, inventory, agent state) so code generation is provably
+        # traceable back to the user's intent.
+        if context_snapshot:
+            metadata["context"] = {
+                k: v for k, v in context_snapshot.items() if v is not None
+            }
+        return metadata
 
     async def generate_from_request(
         self,

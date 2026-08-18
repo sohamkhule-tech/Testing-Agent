@@ -48,35 +48,49 @@ async def _run_pre_review_workflow(
         if project_id:
             entity.project_id = project_id
             await ts.repository.update(entity)
+
+        # A failed/needs-clarification workflow result must NOT be parked as
+        # awaiting review. Surface the real error (e.g. Test Design LLM 500) and
+        # preserve the crawler/inventory results produced before the failure.
+        if not result.get("success") or result.get("status") in ("failed", "needs_clarification"):
+            failed_stage = result.get("failed_stage") or "failed"
+            error = (
+                result.get("error")
+                or (result.get("errors") or [""])[-1]
+                or "Workflow failed"
+            )
+            await ts.update_status(run_id, RS.FAILED, stage=failed_stage, error=error)
+            from app.core.event_bus import EventType, emit
+            await emit(run_id_str, EventType.WORKFLOW_FAILED, {
+                "run_id": run_id_str,
+                "error": error,
+                "stage": failed_stage,
+                "status": result.get("status", "failed"),
+            })
+            if project_id:
+                await _mark_project_run_failed(project_id)
+            logger.error("run_pre_review_failed", run_id=run_id_str, stage=failed_stage, error=error)
+            return
+
         await ts.update_status(run_id, RS.PAUSED, stage="awaiting_review", message="Test design completed. Please review.")
         from app.core.event_bus import EventType, emit
+        test_plan_summary = result.get("test_plan_summary") or {}
         await emit(run_id_str, EventType.HUMAN_REVIEW_REQUIRED, {
             "message": "Test plan is ready for human review.",
             "test_plan_path": result.get("test_plan_path", ""),
-            "scenario_count": result.get("test_plan_summary", {}).get("scenario_count", 0),
-            "modules": result.get("test_plan_summary", {}).get("modules", 0),
+            "scenario_count": test_plan_summary.get("scenario_count", 0),
+            "modules": test_plan_summary.get("modules", 0),
         })
         logger.info("run_awaiting_review", run_id=run_id_str)
     except BaseException as e:
         logger.error("background_workflow_failed", run_id=run_id_str, error=str(e))
         try:
             ts = await _get_ts(run_id_str)
-            from uuid import UUID as _U2
             await ts.update_status(_U(run_id_str), RS.FAILED, stage="failed", error=str(e))
             from app.core.event_bus import EventType, emit
             await emit(run_id_str, EventType.WORKFLOW_FAILED, {"run_id": run_id_str, "error": str(e)})
             if project_id:
-                try:
-                    from app.dependencies import get_project_service
-                    ps = get_project_service()
-                    project = await ps.project_repo.get_by_id(project_id)
-                    if project:
-                        project.last_run_status = "failed"
-                        from datetime import datetime
-                        project.last_run_at = datetime.utcnow()
-                        await ps.project_repo.update(project)
-                except Exception:
-                    pass
+                await _mark_project_run_failed(project_id)
         except Exception:
             pass
 
@@ -85,6 +99,20 @@ async def _get_ts(run_id_str):
     """Get trigger service helper."""
     from app.dependencies import get_trigger_service as _gts
     return _gts()
+
+
+async def _mark_project_run_failed(project_id: UUID) -> None:
+    """Best-effort update of the parent project's last run status."""
+    try:
+        from app.dependencies import get_project_service
+        ps = get_project_service()
+        project = await ps.project_repo.get_by_id(project_id)
+        if project:
+            project.last_run_status = RS.FAILED
+            project.last_run_at = datetime.utcnow()
+            await ps.project_repo.update(project)
+    except Exception:
+        pass
 
 
 from app.constants import RunStatus as RS
@@ -138,6 +166,31 @@ async def create_run(
         parser = get_prompt_parser()
         parsed_intent, auth_context = parser.parse(raw_prompt)
 
+        # --- Phase 1: enrich intent with the Hybrid Intent Parser (LLM) when enabled ---
+        from app.agent.config import get_agent_config as _get_agent_config
+        from app.context import get_hybrid_intent_parser
+        _prompt_context = parsed_intent.to_dict()
+        if _get_agent_config().intent_engine_enabled and raw_prompt:
+            _hybrid = get_hybrid_intent_parser()
+            _hybrid_result = await _hybrid.parse(raw_prompt)
+            if _hybrid_result.source == "hybrid":
+                _prompt_context = dict(_hybrid_result.prompt_context)
+                _prompt_context.update({
+                    "goal": _hybrid_result.goal,
+                    "priorities": _hybrid_result.priorities,
+                    "business_objective": _hybrid_result.business_objective,
+                    "success_criteria": _hybrid_result.success_criteria,
+                    "environment": _hybrid_result.environment,
+                    "browser": _hybrid_result.browser,
+                })
+                # Persist the richer prompt_context so post-review/resume can
+                # rebuild the AgentState with full intent.
+                _parsed_intent_serialized = _prompt_context
+            else:
+                _parsed_intent_serialized = _prompt_context
+        else:
+            _parsed_intent_serialized = _prompt_context
+
         run_id = UUID(generate_uuid())
         request_id = request.request_id or UUID(generate_uuid())
         principal = request.requested_by or "system"
@@ -171,7 +224,7 @@ async def create_run(
             # Phase 1: persist prompt (credentials already redacted by parser)
             user_prompt_text=parsed_intent.raw_text or None,
             user_prompt_redacted_text=parsed_intent.raw_text or None,
-            prompt_context_json=parsed_intent.to_dict(),
+            prompt_context_json=_parsed_intent_serialized,
             prompt_version="v1",
             created_at=now,
             updated_at=now,
@@ -192,7 +245,7 @@ async def create_run(
 
         task = asyncio.create_task(_run_pre_review_workflow(
             str(run_id), ws_path, project_id, request.model_dump(mode="json"), principal,
-            raw_prompt, parsed_intent.to_dict()
+            parsed_intent.raw_text or raw_prompt, _parsed_intent_serialized
         ))
 
         return {
@@ -621,6 +674,7 @@ async def get_run_state(
         resume_allowed = cp_raw.get("resume_allowed", False) or bool(failed)
         artifacts = cp_raw.get("artifact_paths", {})
         logs = cp_raw.get("stage_logs", {})
+        last_error = cp_raw.get("last_error") or getattr(entity, "error", None)
 
         # If completed stages list is empty, infer from contract files in workspace
         workspace_path = _Path(ws)
@@ -641,14 +695,18 @@ async def get_run_state(
                 completed.append("execution")
                 completed.append("report")
 
-        # If no checkpoint exists but run is failed/paused, infer from entity status
-        if not cp_raw and entity.status.value in ("failed", "paused") if hasattr(entity.status, "value") else entity.status in ("failed", "paused"):
+        # If the run is failed/paused but no checkpoint captured a failed stage,
+        # infer it from the entity stage so the response is never a bare failure.
+        status_value = entity.status.value if hasattr(entity.status, "value") else entity.status
+        if not failed and status_value in ("failed", "paused"):
             stage = entity.current_stage
             if stage and stage not in ("completed", "failed", "initialization", "awaiting_review", "changes_requested"):
                 failed = stage
                 resume_allowed = True
             elif stage in ("failed", "changes_requested"):
                 resume_allowed = True
+            elif failed is None and not last_error:
+                last_error = "Workflow failed"
 
         # Determine next stage
         STAGE_ORDER = ["trigger", "crawler", "inventory_aggregator", "test_design", "human_review", "code_generation", "execution"]
@@ -669,7 +727,7 @@ async def get_run_state(
             "resume_allowed": resume_allowed,
             "artifact_paths": artifacts,
             "stage_logs": logs,
-            "last_error": cp_raw.get("last_error"),
+            "last_error": last_error,
             "elapsed_time": None,
         }
     except NotFoundError:
