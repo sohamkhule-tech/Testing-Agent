@@ -93,7 +93,7 @@ function iconColor(name: string) {
     case 'json': return 'text-amber-400';
     case 'md': return 'text-purple-400';
     case 'yml': case 'yaml': return 'text-sky-400';
-    default: return 'text-zinc-400';
+    default: return 'text-muted-foreground';
   }
 }
 
@@ -150,7 +150,7 @@ export function LiveFileExplorer({ files, onSelectFile, selectedPath, isGenerati
       <div key={fullPath}>
         <div
           className={cn(
-            'flex items-center gap-1 px-2 py-0.5 cursor-pointer hover:bg-zinc-800/60 transition-colors text-xs',
+            'flex items-center gap-1 px-2 py-0.5 cursor-pointer hover:bg-accent transition-colors text-xs',
             selectedPath === (node.file?.path || fullPath) && 'bg-blue-500/10 border-l-2 border-blue-500',
           )}
           style={{ paddingLeft: `${depth * 12 + 4}px` }}
@@ -164,19 +164,19 @@ export function LiveFileExplorer({ files, onSelectFile, selectedPath, isGenerati
         >
           {node.isDir && (
             isExpanded
-              ? <ChevronDown className="h-3 w-3 text-zinc-500 shrink-0" />
-              : <ChevronRight className="h-3 w-3 text-zinc-500 shrink-0" />
+              ? <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
+              : <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
           )}
           {!node.isDir && <span className="w-3 shrink-0" />}
           <Icon className={cn('h-3.5 w-3.5 shrink-0', iconColor(node.name))} />
           <span className={cn(
             'truncate',
-            node.isDir ? 'text-zinc-300 font-medium' : 'text-zinc-400',
+            node.isDir ? 'text-foreground font-medium' : 'text-muted-foreground',
           )}>
             {node.name}
           </span>
           {!node.isDir && node.file?.timestamp && (
-            <span className="text-[9px] text-zinc-600 ml-auto shrink-0 animate-pulse">
+            <span className="text-[9px] text-muted-foreground ml-auto shrink-0 animate-pulse">
               NEW
             </span>
           )}
@@ -187,12 +187,12 @@ export function LiveFileExplorer({ files, onSelectFile, selectedPath, isGenerati
   };
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800">
+    <div className="rounded-lg border border-border bg-card overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <Folder className="h-3.5 w-3.5 text-amber-400" />
-        <span className="text-xs font-medium text-zinc-300">Generated Project</span>
+        <span className="text-xs font-medium text-foreground">Generated Project</span>
         {isGenerating && (
-          <span className="flex items-center gap-1 text-[10px] text-zinc-500 ml-auto">
+          <span className="flex items-center gap-1 text-[10px] text-muted-foreground ml-auto">
             <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
             Generating...
           </span>
@@ -200,7 +200,7 @@ export function LiveFileExplorer({ files, onSelectFile, selectedPath, isGenerati
       </div>
       <div ref={listRef} className="max-h-[320px] overflow-y-auto py-1">
         {tree.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-zinc-600 text-xs">
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
             {isGenerating ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -306,8 +306,8 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
 
   if (!file) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 h-full flex items-center justify-center">
-        <div className="text-center text-zinc-600 space-y-2">
+      <div className="rounded-lg border border-border bg-card h-full flex items-center justify-center">
+        <div className="text-center text-muted-foreground space-y-2">
           <FileCode className="h-8 w-8 mx-auto opacity-30" />
           <p className="text-xs">Select a file from the explorer to view its code</p>
         </div>
@@ -317,8 +317,8 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
 
   if (isLoading || content === null) {
     return (
-      <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 h-full flex items-center justify-center">
-        <div className="text-center text-zinc-500 text-xs space-y-2">
+      <div className="rounded-lg border border-border bg-card h-full flex items-center justify-center">
+        <div className="text-center text-muted-foreground text-xs space-y-2">
           <Loader2 className="h-5 w-5 mx-auto animate-spin text-cyan-400" />
           <p>Generating {file.name}...</p>
         </div>
@@ -328,7 +328,7 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
 
   if (loadError) {
     return (
-      <div className="rounded-lg border border-red-500/30 bg-zinc-950/60 h-full flex items-center justify-center">
+      <div className="rounded-lg border border-red-500/30 bg-card h-full flex items-center justify-center">
         <p className="text-xs text-red-400">Failed to load: {loadError}</p>
       </div>
     );
@@ -338,12 +338,12 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
   const visibleLines = allLines.slice(0, displayedLineCount);
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-950/60 overflow-hidden h-full flex flex-col">
+    <div className="rounded-lg border border-border bg-card overflow-hidden h-full flex flex-col">
       {/* File header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-900/50">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/50">
         <FileCode className={cn('h-3.5 w-3.5', iconColor(file.name))} />
-        <span className="text-xs font-medium text-zinc-300">{file.name}</span>
-        <span className="text-[10px] text-zinc-600 ml-auto tabular-nums">{allLines.length} lines</span>
+        <span className="text-xs font-medium text-foreground">{file.name}</span>
+        <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">{allLines.length} lines</span>
         {isStreaming && (
           <span className="text-[10px] text-cyan-400 flex items-center gap-1 font-mono">
             <span className="relative flex h-2 w-2">
@@ -357,18 +357,18 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
 
       {/* Code area */}
       <div className="flex-1 overflow-auto">
-        <pre className="text-xs font-mono text-zinc-300 p-0">
+        <pre className="text-xs font-mono text-foreground p-0">
           <table className="w-full border-collapse">
             <tbody>
               {visibleLines.map((line, i) => (
                 <tr
                   key={i}
                   className={cn(
-                    'hover:bg-zinc-800/30 transition-colors',
+                    'hover:bg-accent/60 transition-colors',
                     isStreaming && i === visibleLines.length - 1 && 'bg-cyan-950/30 border-l-2 border-cyan-400',
                   )}
                 >
-                  <td className="select-none text-right pr-4 pl-3 text-zinc-600 border-r border-zinc-800 w-12 align-top leading-6">
+                  <td className="select-none text-right pr-4 pl-3 text-muted-foreground border-r border-border w-12 align-top leading-6">
                     {i + 1}
                   </td>
                   <td className="pl-3 leading-6 whitespace-pre-wrap break-all">
@@ -393,7 +393,7 @@ function highlightCode(line: string): React.ReactNode {
   if (/const\s+\w+\s*[:=]|let\s+\w+\s*[:=]/.test(line)) return <span className="text-cyan-400">{line}</span>;
   if (/\btest\b\(/.test(line)) return <span className="text-emerald-400">{line}</span>;
   if (/\bexpect\b\(/.test(line)) return <span className="text-orange-400">{line}</span>;
-  if (/^(\s*\/\/|^\s*\/\*|\s*\*\/)/.test(line)) return <span className="text-zinc-500 italic">{line}</span>;
+  if (/^(\s*\/\/|^\s*\/\*|\s*\*\/)/.test(line)) return <span className="text-muted-foreground italic">{line}</span>;
   if (/^\s*$/.test(line)) return '\u00A0';
   return line;
 }

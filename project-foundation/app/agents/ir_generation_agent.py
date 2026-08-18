@@ -182,60 +182,108 @@ class IRGenerationAgent(LoggerMixin):
             "label": f"Calling {self.llm_client.model} for IR Generation",
         })
 
-        # Call LLM with comprehensive logging and timeout protection
-        await _emit(self.run_id, EventType.WAITING_FOR_LLM_RESPONSE, {
-            "label": f"Waiting for {self.llm_client.model} response...",
-            "model": self.llm_client.model,
-            "estimated_prompt_tokens": prompt_tokens,
-            "status": "generating",
-        })
-        
+        ir = await self._complete_and_parse_ir(prompt, prompt_tokens)
+
+        self.logger.info("initial_ir_generated")
+        return ir
+
+    MAX_JSON_RETRIES = 3
+
+    async def _complete_and_parse_ir(self, prompt: str, prompt_tokens: int) -> CodeGenerationIR:
+        """Call the LLM and parse its IR JSON output, retrying on malformed JSON.
+
+        Smaller models occasionally emit invalid JSON on long, exhaustive IR
+        generations. A single bad response must not hard-fail the run, so the
+        call is retried a bounded number of times — with a slightly higher
+        temperature on each retry so the regenerated output differs. The raw
+        response is never logged; only parse status is.
+        """
         import time
-        llm_call_start = time.time()
-        
-        self.logger.info(
-            "llm_call_started",
-            model=self.llm_client.model,
-            prompt_length=len(prompt),
-            estimated_tokens=prompt_tokens,
-            max_tokens=self.llm_client.default_max_tokens,
-            temperature=0.3,
-            timestamp=llm_call_start,
-        )
-        
-        try:
+        last_error = ""
+        for attempt in range(1, self.MAX_JSON_RETRIES + 1):
+            await _emit(self.run_id, EventType.WAITING_FOR_LLM_RESPONSE, {
+                "label": f"Waiting for {self.llm_client.model} response...",
+                "model": self.llm_client.model,
+                "estimated_prompt_tokens": prompt_tokens,
+                "status": "generating",
+            })
+
+            llm_call_start = time.time()
+            self.logger.info(
+                "llm_call_started",
+                model=self.llm_client.model,
+                prompt_length=len(prompt),
+                estimated_tokens=prompt_tokens,
+                max_tokens=self.llm_client.default_max_tokens,
+                temperature=0.3,
+                timestamp=llm_call_start,
+            )
+
             # Double-layer timeout protection: even if AsyncOpenAI client hangs,
             # this outer timeout will fire
             from app.config import get_settings
             settings = get_settings()
             # Add 60s buffer beyond the client's internal timeout
             outer_timeout = settings.llm.openai_timeout + 60
-            
             self.logger.info(
                 "llm_call_initiating",
                 outer_timeout=outer_timeout,
                 client_timeout=settings.llm.openai_timeout,
             )
-            
-            response = await asyncio.wait_for(
-                self.llm_client.complete(
-                    prompt=prompt,
-                    max_tokens=self.llm_client.default_max_tokens,
-                    temperature=0.3,
-                ),
-                timeout=outer_timeout,
-            )
-            
+
+            try:
+                response = await asyncio.wait_for(
+                    self.llm_client.complete(
+                        prompt=prompt,
+                        max_tokens=self.llm_client.default_max_tokens,
+                        temperature=0.3 + (0.2 * (attempt - 1)),
+                    ),
+                    timeout=outer_timeout,
+                )
+            except asyncio.TimeoutError as timeout_err:
+                llm_call_duration = time.time() - llm_call_start
+                error_msg = f"LLM call timed out after {llm_call_duration:.1f}s (limit: {outer_timeout}s)"
+                self.logger.error(
+                    "llm_call_timeout",
+                    duration=llm_call_duration,
+                    timeout_limit=outer_timeout,
+                    model=self.llm_client.model,
+                )
+                await _emit(self.run_id, EventType.LLM_TIMEOUT, {
+                    "error": error_msg,
+                    "duration_seconds": llm_call_duration,
+                    "timeout_seconds": outer_timeout,
+                    "model": self.llm_client.model,
+                    "label": "LLM request timed out",
+                })
+                raise AgentExecutionError(error_msg) from timeout_err
+            except Exception as llm_err:
+                llm_call_duration = time.time() - llm_call_start
+                error_msg = f"LLM call failed: {str(llm_err)}"
+                self.logger.error(
+                    "llm_call_failed",
+                    duration=llm_call_duration,
+                    error=str(llm_err),
+                    error_type=type(llm_err).__name__,
+                    model=self.llm_client.model,
+                )
+                await _emit(self.run_id, EventType.LLM_ERROR, {
+                    "error": str(llm_err),
+                    "error_type": type(llm_err).__name__,
+                    "duration_seconds": llm_call_duration,
+                    "model": self.llm_client.model,
+                    "label": f"LLM error: {type(llm_err).__name__}",
+                })
+                raise AgentExecutionError(error_msg) from llm_err
+
             llm_call_duration = time.time() - llm_call_start
             response_tokens = len(response.split()) if response else 0
-            
             self.logger.info(
                 "llm_call_completed",
                 duration=llm_call_duration,
                 response_length=len(response) if response else 0,
                 estimated_completion_tokens=response_tokens,
             )
-            
             await _emit(self.run_id, EventType.RECEIVED_LLM_RESPONSE, {
                 "model": self.llm_client.model,
                 "response_length": len(response) if response else 0,
@@ -245,73 +293,42 @@ class IRGenerationAgent(LoggerMixin):
                 "duration_seconds": llm_call_duration,
                 "label": f"Model response received ({llm_call_duration:.1f}s)",
             })
-
             await _emit(self.run_id, EventType.LLM_CALL_COMPLETED, {
                 "model": self.llm_client.model,
                 "response_tokens": response_tokens,
                 "duration_seconds": llm_call_duration,
                 "label": "LLM generation complete",
             })
-            
-        except asyncio.TimeoutError as timeout_err:
-            llm_call_duration = time.time() - llm_call_start
-            error_msg = f"LLM call timed out after {llm_call_duration:.1f}s (limit: {outer_timeout}s)"
-            
-            self.logger.error(
-                "llm_call_timeout",
-                duration=llm_call_duration,
-                timeout_limit=outer_timeout,
-                model=self.llm_client.model,
-            )
-            
-            await _emit(self.run_id, EventType.LLM_TIMEOUT, {
-                "error": error_msg,
-                "duration_seconds": llm_call_duration,
-                "timeout_seconds": outer_timeout,
-                "model": self.llm_client.model,
-                "label": "LLM request timed out",
-            })
-            
-            raise AgentExecutionError(error_msg) from timeout_err
-            
-        except Exception as llm_err:
-            llm_call_duration = time.time() - llm_call_start
-            error_msg = f"LLM call failed: {str(llm_err)}"
-            
-            self.logger.error(
-                "llm_call_failed",
-                duration=llm_call_duration,
-                error=str(llm_err),
-                error_type=type(llm_err).__name__,
-                model=self.llm_client.model,
-            )
-            
-            await _emit(self.run_id, EventType.LLM_ERROR, {
-                "error": str(llm_err),
-                "error_type": type(llm_err).__name__,
-                "duration_seconds": llm_call_duration,
-                "model": self.llm_client.model,
-                "label": f"LLM error: {type(llm_err).__name__}",
-            })
-            
-            raise AgentExecutionError(error_msg) from llm_err
 
-        # Parse response
-        await _emit(self.run_id, EventType.PARSING_RESPONSE, {
-            "label": "Parsing JSON response...",
-            "status": "parsing",
-        })
-        
-        ir = await self._parse_ir_response(response)
-        
-        await _emit(self.run_id, EventType.JSON_PARSED, {
-            "label": "JSON parsed successfully",
-            "pages": len(ir.pages),
-            "modules": len(ir.modules),
-        })
+            await _emit(self.run_id, EventType.PARSING_RESPONSE, {
+                "label": "Parsing JSON response...",
+                "status": "parsing",
+            })
 
-        self.logger.info("initial_ir_generated")
-        return ir
+            try:
+                ir = await self._parse_ir_response(response)
+            except AgentExecutionError as e:
+                last_error = str(e)
+                self.logger.warning(
+                    "ir_json_retry",
+                    attempt=attempt,
+                    max_attempts=self.MAX_JSON_RETRIES,
+                    error=last_error,
+                )
+                if attempt < self.MAX_JSON_RETRIES:
+                    await asyncio.sleep(0.5 * attempt)
+                continue
+
+            await _emit(self.run_id, EventType.JSON_PARSED, {
+                "label": "JSON parsed successfully",
+                "pages": len(ir.pages),
+                "modules": len(ir.modules),
+            })
+            return ir
+
+        raise AgentExecutionError(
+            f"LLM returned invalid IR JSON after {self.MAX_JSON_RETRIES} attempts: {last_error}"
+        )
 
     async def _parse_ir_response(self, response: str) -> CodeGenerationIR:
         """

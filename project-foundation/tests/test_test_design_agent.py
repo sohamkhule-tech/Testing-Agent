@@ -592,6 +592,110 @@ class TestTestDesignAgent:
                 "workspace_path": str(tmp_path),
             })
 
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_agent_recovers_from_transient_bad_json(self, service, tmp_path):
+        """Regression: one malformed LLM response is retried, not fatal to the run."""
+        valid_response = """{
+  "application_summary": {
+    "name": "App",
+    "total_pages": 1,
+    "total_forms": 0,
+    "total_apis": 0,
+    "authentication_required": false,
+    "auth_method": "none"
+  },
+  "modules": [
+    {
+      "name": "Core",
+      "description": "Core functionality",
+      "pages": ["https://example.com/"],
+      "scenarios": [
+        {
+          "metadata": {
+            "id": "TC-001",
+            "title": "Verify app loads",
+            "description": "Smoke",
+            "priority": "critical",
+            "category": "smoke",
+            "module": "Core",
+            "target_page": "https://example.com/",
+            "preconditions": [],
+            "test_steps": ["Load the app"],
+            "expected_result": "App loads",
+            "required_test_data": [],
+            "tags": ["smoke"],
+            "dependencies": [],
+            "risk_level": "low"
+          },
+          "use_cases": []
+        }
+      ]
+    }
+  ],
+  "dependencies": {"scenario_ids": [], "required_data": [], "required_state": []},
+  "test_priorities": {
+    "critical_paths": ["TC-001"],
+    "high_priority": [],
+    "medium_priority": [],
+    "low_priority": []
+  },
+  "assumptions": {"assumptions": [], "constraints": [], "risks": []},
+  "high_risk_areas": [],
+  "regression_candidates": [],
+  "accessibility_recommendations": [],
+  "performance_recommendations": []
+}"""
+
+        class FlakyLLM(MockLLMClient):
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            async def complete(self, prompt, system_prompt=None, temperature=0.7, max_tokens=4096, **kwargs):
+                self.calls += 1
+                return "not valid json at all" if self.calls == 1 else valid_response
+
+        agent = TestDesignAgent(service=service, llm_client=FlakyLLM())
+
+        run_id = uuid4()
+        inv = Inventory(
+            metadata=InventoryMetadata(
+                run_id=run_id,
+                request_id=uuid4(),
+                generated_at=datetime.now(timezone.utc),
+                page_count=1,
+            ),
+            pages=[
+                PageRecord(
+                    page_id=uuid4(),
+                    url="https://example.com/",
+                    title="Home",
+                    status_code=200,
+                    content_type="text/html",
+                    content_length=100,
+                    response_time=50,
+                    depth=0,
+                    discovered_at=datetime.now(timezone.utc),
+                ),
+            ],
+            navigation=InventoryNavigation(),
+            statistics=InventoryStatistics(),
+        )
+
+        contracts = tmp_path / "contracts"
+        contracts.mkdir(parents=True)
+        from app.utils import save_file
+        await save_file(contracts / "inventory.json", inv.model_dump(mode="json"))
+
+        result = await agent.execute({
+            "run_id": str(run_id),
+            "workspace_path": str(tmp_path),
+        })
+
+        assert result["success"] is True
+        assert result["scenario_count"] == 1
+
 
 class TestDesignEdgeCases:
     """Edge case tests for test design agent."""

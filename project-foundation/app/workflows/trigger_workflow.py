@@ -238,14 +238,16 @@ async def crawler_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
         if state.workspace_path:
             from app.services.prompt_builder import get_credential_store as _gcs
             _loaded_auth = _gcs().load(state.workspace_path)
-            if _loaded_auth.is_populated():
-                # Fall back to target app URL when no explicit login URL was in the prompt
-                _target_url = (state.request_data or {}).get("target_application", {}).get("base_url") or ""
-                _login_url = _loaded_auth.login_url or _target_url or None
+            if _loaded_auth.has_auth_config():
+                # Do NOT default the login URL to the target base URL: the target
+                # base URL is not necessarily a login page. If no login URL was
+                # supplied, the crawler reports a structured AUTH_URL_NOT_FOUND
+                # (or attempts runtime discovery) rather than assuming the base
+                # URL is a login page.
                 _auth_context_dict = {
                     "username": _loaded_auth.username,
                     "password": _loaded_auth.password,
-                    "login_url": _login_url,
+                    "login_url": _loaded_auth.login_url,
                     "auth_strategy": _loaded_auth.auth_strategy,
                 }
                 # Phase 1: mirror credentials into AgentState (in-memory only —
@@ -1493,6 +1495,22 @@ def _with_checkpoint(node_fn, stage: str):
     return wrapper
 
 
+def _route_after_stage(next_node: str, node_name: str):
+    """Build a LangGraph conditional-edge router that stops on stage failure.
+
+    When the given stage failed (or any error was recorded), the workflow routes
+    to END instead of the next node, preventing downstream stages from producing
+    empty/meaningless artifacts (e.g. empty inventory after a failed crawl).
+    """
+    def router(state: PlatformWorkflowState) -> str:
+        result = state.node_results.get(node_name)
+        if state.errors or (result is not None and result.status == "failed"):
+            return END
+        return next_node
+
+    return router
+
+
 def create_platform_workflow() -> StateGraph:
     workflow = StateGraph(PlatformWorkflowState)
     workflow.add_node("trigger", trigger_node)
@@ -1501,8 +1519,16 @@ def create_platform_workflow() -> StateGraph:
     workflow.add_node("test_design", test_design_node)
     workflow.add_edge(START, "trigger")
     workflow.add_edge("trigger", "crawler")
-    workflow.add_edge("crawler", "inventory_aggregator")
-    workflow.add_edge("inventory_aggregator", "test_design")
+    workflow.add_conditional_edges(
+        "crawler",
+        _route_after_stage("inventory_aggregator", "crawler"),
+        {"inventory_aggregator": "inventory_aggregator", END: END},
+    )
+    workflow.add_conditional_edges(
+        "inventory_aggregator",
+        _route_after_stage("test_design", "inventory_aggregator"),
+        {"test_design": "test_design", END: END},
+    )
     workflow.add_edge("test_design", END)
     compiled = workflow.compile()
     logger.info("pre_review_workflow_created")
@@ -1589,9 +1615,21 @@ def create_unified_workflow() -> StateGraph:
 
     workflow.add_edge(START, "trigger")
     workflow.add_edge("trigger", "crawler")
-    workflow.add_edge("crawler", "inventory_aggregator")
-    workflow.add_edge("inventory_aggregator", "test_design")
-    workflow.add_edge("test_design", "human_review")
+    workflow.add_conditional_edges(
+        "crawler",
+        _route_after_stage("inventory_aggregator", "crawler"),
+        {"inventory_aggregator": "inventory_aggregator", END: END},
+    )
+    workflow.add_conditional_edges(
+        "inventory_aggregator",
+        _route_after_stage("test_design", "inventory_aggregator"),
+        {"test_design": "test_design", END: END},
+    )
+    workflow.add_conditional_edges(
+        "test_design",
+        _route_after_stage("human_review", "test_design"),
+        {"human_review": "human_review", END: END},
+    )
     workflow.add_edge("human_review", "code_generation")
 
     # Conditional edge: only proceed to execution if code generation succeeded

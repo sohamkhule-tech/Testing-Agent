@@ -6,6 +6,7 @@ Business logic for web crawling and discovery.
 
 import asyncio
 import re
+import time
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -47,48 +48,42 @@ from app.schemas import (
     TableRecord,
     UploadRecord,
 )
+from app.services.auth_state import (
+    RETRYABLE_AUTH_FAILURES,
+    AuthEvidence,
+    AuthFailureReason,
+    AuthResult,
+    AuthState,
+)
 from app.services.dom_extractor import extract_all
 from app.utils import save_file
 
-
-class AuthFailureReason(StrEnum):
-    """Structured authentication failure reasons (Phase 4.5 audit fixes)."""
-    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
-    LOGIN_TIMEOUT = "LOGIN_TIMEOUT"
-    MFA_REQUIRED = "MFA_REQUIRED"
-    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
-    OAUTH_REDIRECT_TIMEOUT = "OAUTH_REDIRECT_TIMEOUT"
-    NETWORK_ERROR = "NETWORK_ERROR"
-    AUTHORIZATION_DENIED = "AUTHORIZATION_DENIED"
-    LOGIN_SUCCESS_BUT_VALIDATION_FAILED = "LOGIN_SUCCESS_BUT_VALIDATION_FAILED"
-    UNKNOWN_AUTH_ERROR = "UNKNOWN_AUTH_ERROR"
-
-
-# Phase 4.5: auth error text patterns — only EXACT text matches, no class selectors
+# Generic authentication *failure* text indicators (invalid credentials / denial).
+# These are generic error-message keywords, NOT application routes or success
+# heuristics. Challenge indicators (MFA/OTP/captcha) live separately below.
 _AUTH_ERROR_TEXT_PATTERNS: list[str] = [
     "invalid username", "invalid password", "incorrect password",
     "incorrect username", "wrong credentials", "wrong password", "wrong username",
     "authentication failed", "login failed", "access denied",
     "invalid email", "invalid user", "user not found", "account not found",
     "account locked", "too many attempts",
+]
+
+# Generic authentication *challenge* indicators (MFA / OTP / captcha). These
+# signal an in-progress challenge, never a success or a terminal failure.
+_AUTH_CHALLENGE_TEXT_PATTERNS: list[str] = [
     "verify your identity", "mfa required", "multi-factor authentication",
-    "2fa required", "two-factor authentication", "captcha", "please complete the captcha",
+    "2fa required", "two-factor authentication", "one-time code",
+    "verification code", "enter the code", "authentication code",
+    "captcha", "please complete the captcha",
 ]
 
-# Post-login success indicators (title keywords)
-_POST_LOGIN_TITLE_KW: set[str] = {
-    "dashboard", "home", "workspace", "welcome",
-    "overview", "projects", "portal", "app",
-}
-
-# CSS selectors for post-login authenticated UI (ONLY structural, NO class-substring)
-_POST_LOGIN_UI_SELECTORS: list[str] = [
-    'nav:visible', '[role="navigation"]:visible',
-    'a:has-text("Logout"):visible', 'a:has-text("Log out"):visible',
-    'a:has-text("Sign out"):visible', 'button:has-text("Logout"):visible',
-    'a:has-text("Profile"):visible', 'a:has-text("Account"):visible',
-    '[aria-label="User menu"]:visible', '[aria-label="Account"]:visible',
-]
+# Generic selectors for an OTP / verification-code input (structural only).
+_OTP_FIELD_SELECTOR: str = (
+    'input[autocomplete="one-time-code"], '
+    'input[name*="otp" i], input[name*="code" i], input[name*="mfa" i], '
+    'input[name*="verification" i]'
+)
 
 
 class CrawlPhase(StrEnum):
@@ -286,6 +281,7 @@ class CrawlerService(IService, LoggerMixin):
         crawl_status = "completed"
         run_id_str = str(request.run_id)
         self._event_run_id = run_id_str
+        self._target_url = request.target_url
 
         try:
             self.logger.info("crawl_started", run_id=run_id_str, target_url=request.target_url)
@@ -316,12 +312,13 @@ class CrawlerService(IService, LoggerMixin):
             await emit(run_id_str, EventType.BROWSER_CONTEXT_CREATED, {})
 
             try:
-                # Phase 5/6: attempt login if credentials are available
+                # Attempt authentication when credentials/strategy were supplied.
                 post_login_url: str | None = None
-                if self._auth_context and self._auth_context.is_populated():
-                    login_succeeded, post_login_url = await self._perform_login(context)
-                    if login_succeeded:
+                if self._auth_context and self._auth_context.has_auth_config():
+                    auth_result = await self._perform_login(context)
+                    if auth_result.success:
                         self._authenticated = True
+                        post_login_url = auth_result.post_login_url
                         # Record authentication as chronological evidence. A
                         # successful authenticate() does NOT imply GOAL_COMPLETED —
                         # the intent-derived ExpectedStateGraph decides whether
@@ -335,14 +332,31 @@ class CrawlerService(IService, LoggerMixin):
                         await emit(run_id_str, EventType.STAGE_STARTED, {
                             "stage": "crawler_auth", "label": "Authentication",
                         })
-                    else:
+                    elif auth_result.stop_crawl:
+                        # Credentials were supplied => authentication is required.
+                        # A failed/unknown/unsupported/challenged outcome must NOT
+                        # continue as if public crawling produced authenticated
+                        # inventory.
+                        code = (
+                            auth_result.failure_reason.value
+                            if auth_result.failure_reason
+                            else "AUTH_FAILED"
+                        )
                         self._warnings.append(
                             CrawlEvent(
-                                code="AUTH_FAILED",
-                                message="Login failed — crawling will be limited to publicly accessible pages",
+                                code=code,
+                                message=auth_result.reason or "Authentication required but not completed",
                                 url=request.target_url,
                                 timestamp=datetime.now(UTC),
                             )
+                        )
+                        self.logger.error(
+                            "authentication_required_but_not_completed",
+                            state=auth_result.state.value,
+                            reason=auth_result.reason,
+                        )
+                        raise ServiceError(
+                            f"Authentication failed ({auth_result.state.value}): {auth_result.reason}"
                         )
 
                 # Seed the crawl with the target URL and, if different, the post-login landing page.
@@ -829,8 +843,22 @@ class CrawlerService(IService, LoggerMixin):
             # Action: Wait for load
             if eid: await emit(eid, EventType.BROWSER_ACTION, {"action": "wait_for_load", "target": url, "label": "Waiting for page to load"})
             if eid: await emit(eid, EventType.DOM_CONTENT_LOADED, {"url": url, "depth": depth})
-            # Do not wait for networkidle: SPAs and polling/WebSocket pages may
-            # never become idle. DOMContentLoaded is the bounded crawl barrier.
+            # SPA-aware settle barrier. DOMContentLoaded fires before JS
+            # frameworks (Angular/React/Vue) bootstrap and render async data;
+            # extracting the DOM at that instant yields an empty shell. Wait a
+            # bounded amount of time for the network to go quiet so the rendered
+            # links/buttons/forms/tables are visible to the extractor. The wait is
+            # bounded — apps that poll or stream forever simply hit the timeout and
+            # crawling proceeds. A short fixed settle then covers the final render
+            # tick after the last request.
+            try:
+                await page.wait_for_load_state("networkidle", timeout=4000)
+            except Exception:
+                pass  # app may poll/stream forever — crawl with what is rendered
+            try:
+                await page.wait_for_timeout(400)
+            except Exception:
+                pass
             if eid: await emit(eid, EventType.PAGE_LOADED, {"url": url, "depth": depth, "status_code": response.status if response else 0})
             end_time = datetime.now(UTC)
 
@@ -1507,154 +1535,209 @@ class CrawlerService(IService, LoggerMixin):
             kind=kind,
         )
 
-    async def _perform_login(self, context: BrowserContext) -> tuple[bool, str | None]:
+    async def _perform_login(self, context: BrowserContext) -> AuthResult:
         """
-        Attempt to log in using the stored AuthContext.
+        Attempt authentication using the stored AuthContext.
 
-        Uses Playwright's role/label-based locators first (framework-agnostic),
-        then falls back to comprehensive CSS selectors, and finally tries any
-        visible text/password input pair as a last resort.
+        Honors ``auth_strategy``: the form strategy is driven directly; oauth/sso
+        use a generic browser redirect flow; any other strategy returns a
+        structured ``AUTH_STRATEGY_UNSUPPORTED`` outcome.
 
-        SECURITY: credentials are used directly in page.fill() calls;
-        they are never written to logs or returned in any output.
-
-        Returns:
-            Tuple of (login succeeded, post-login URL or None).
-            Returns (False, None) if credentials are missing, form fields
-            cannot be found, or the login attempt fails.
+        SECURITY: credentials are used directly in browser fill calls; they are
+        never written to logs, events, or returned in any output.
         """
         auth = self._auth_context
-        if not auth or not auth.is_populated():
-            return False, None
+        if not auth:
+            return AuthResult(state=AuthState.UNAUTHENTICATED, reason="No authentication context")
         eid = getattr(self, "_event_run_id", None)
+        strategy = (auth.auth_strategy or "form").lower()
+
+        if eid:
+            await emit(eid, EventType.AUTH_STARTED, {"strategy": strategy})
+
+        if strategy == "form":
+            if not auth.is_populated():
+                return AuthResult(
+                    state=AuthState.UNAUTHENTICATED,
+                    reason="Username and password required for form authentication",
+                )
+            return await self._perform_form_login(context, auth, eid)
+
+        if strategy in ("oauth", "sso"):
+            return await self._perform_oauth_sso_flow(context, auth, eid)
+
+        if eid:
+            await emit(eid, EventType.AUTH_STRATEGY_UNSUPPORTED, {"strategy": strategy})
+        return AuthResult(
+            state=AuthState.AUTH_STRATEGY_UNSUPPORTED,
+            failure_reason=AuthFailureReason.AUTH_STRATEGY_UNSUPPORTED,
+            reason=f"Authentication strategy '{strategy}' is not supported by the crawler",
+        )
+
+    async def _perform_form_login(self, context: BrowserContext, auth, eid: str | None) -> AuthResult:
+        """Drive a username/password form at the explicit (or discovered) login URL."""
+        login_url = await self._resolve_login_url(context, auth)
+        if not login_url:
+            if eid:
+                await emit(eid, EventType.AUTH_URL_NOT_FOUND, {"reason": "no_login_url_supplied"})
+            return AuthResult(
+                state=AuthState.AUTH_URL_NOT_FOUND,
+                failure_reason=AuthFailureReason.AUTH_URL_NOT_FOUND,
+                reason="No login URL supplied and none could be discovered",
+            )
+
+        if eid:
+            await emit(eid, EventType.STAGE_STARTED, {"stage": "authentication", "label": "Logging In"})
+            await emit(eid, EventType.AUTH_URL_DISCOVERED, {"url": login_url})
+
+        # Bounded retry for transient failures only.
+        transient_attempts = 0
+        while True:
+            result = await self._attempt_form_login_once(context, auth, login_url, eid)
+            if result.success:
+                return result
+            if result.failure_reason not in RETRYABLE_AUTH_FAILURES:
+                return result
+            transient_attempts += 1
+            if transient_attempts >= 2:
+                return result
+            self.logger.info(
+                "auth_transient_retry",
+                attempt=transient_attempts,
+                reason=result.failure_reason.value,
+            )
+
+    async def _attempt_form_login_once(self, context: BrowserContext, auth, login_url: str, eid: str | None) -> AuthResult:
+        if eid:
+            await emit(eid, EventType.BROWSER_ACTION, {"action": "goto", "target": login_url, "label": f"Opening login page: {login_url}"})
+
+        page = await context.new_page()
         try:
-            login_url = auth.login_url
-            if not login_url:
-                self.logger.info("login_skipped_no_login_url")
-                return False, None
+            try:
+                await page.goto(login_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception as nav_error:
+                self.logger.warning("auth_navigation_failed", url=login_url, error=str(nav_error))
+                return AuthResult(
+                    state=AuthState.AUTHENTICATION_TIMEOUT,
+                    failure_reason=AuthFailureReason.NETWORK_ERROR,
+                    reason=f"Could not reach login URL: {nav_error}",
+                )
 
             if eid:
-                await emit(eid, EventType.STAGE_STARTED, {"stage": "authentication", "label": "Logging In"})
+                await emit(eid, EventType.PAGE_LOADED, {"url": login_url, "depth": 0, "status_code": 200})
 
-            # Try multiple login URL candidates if the first one doesn't have a login form
-            urls_to_try = [login_url]
-            parsed = urlparse(login_url)
-            base = f"{parsed.scheme}://{parsed.netloc}"
-            for path in ["/login", "/signin", "/sign-in", "/auth/login"]:
-                candidate = urljoin(base, path)
-                if candidate not in urls_to_try:
-                    urls_to_try.append(candidate)
+            username_field = await self._locate_username_field(page)
+            password_field = await self._locate_password_field(page)
+            if not (username_field and password_field):
+                await self._wait_for_login_form(page)
+                username_field = await self._locate_username_field(page)
+                password_field = await self._locate_password_field(page)
 
-            login_succeeded = False
-            post_login_url: str | None = None
+            if not (username_field and password_field):
+                self.logger.info("login_form_not_found", url=login_url)
+                return AuthResult(
+                    state=AuthState.AUTH_URL_NOT_FOUND,
+                    failure_reason=AuthFailureReason.AUTH_URL_NOT_FOUND,
+                    reason=f"No login form found at {login_url}",
+                )
 
-            for attempt_url in urls_to_try:
-                if login_succeeded:
-                    break
+            if eid:
+                await emit(eid, EventType.AUTH_FORM_DETECTED, {"url": login_url})
+                await self._emit_action_with_position(eid, username_field, "fill", "Typing username / user ID...")
+                await self._emit_action_with_position(eid, password_field, "fill", "Typing password...")
 
+            await username_field.fill(auth.username or "")
+            await password_field.fill(auth.password or "")
+            self.logger.info("auth_credentials_filled", has_username=bool(auth.username))
+
+            submit_button = await self._locate_submit_button(page)
+            pre_login_url = page.url
+            if eid and submit_button:
+                await self._emit_action_with_position(eid, submit_button, "click", "Clicking Login button...")
+            self.logger.info("auth_submit_clicked", url=pre_login_url)
+            result = await self._submit_and_wait_for_auth(page, submit_button, pre_login_url, eid)
+            if result.success:
                 if eid:
-                    await emit(eid, EventType.BROWSER_ACTION, {"action": "goto", "target": attempt_url, "label": f"Opening login page: {attempt_url}"})
+                    if self._screenshots_dir:
+                        await self._capture_login_screenshot(page, eid, result.post_login_url or login_url)
+                    await emit(eid, EventType.STAGE_COMPLETED, {"stage": "authentication", "label": "Login Successful"})
+            return result
+        finally:
+            await page.close()
 
-                page = await context.new_page()
+    async def _perform_oauth_sso_flow(self, context: BrowserContext, auth, eid: str | None) -> AuthResult:
+        """
+        Generic OAuth/SSO browser-flow handling.
+
+        Navigates to the configured login URL, follows cross-origin redirects to
+        an identity provider within the same context (session state preserved),
+        drives any username/password form that appears, detects MFA challenges,
+        and verifies the final authenticated state. No provider-specific
+        hostnames, routes, or selectors are used.
+        """
+        login_url = await self._resolve_login_url(context, auth)
+        if not login_url:
+            if eid:
+                await emit(eid, EventType.AUTH_URL_NOT_FOUND, {"reason": "no_login_url_supplied"})
+            return AuthResult(
+                state=AuthState.AUTH_URL_NOT_FOUND,
+                failure_reason=AuthFailureReason.AUTH_URL_NOT_FOUND,
+                reason="No login URL supplied and none could be discovered",
+            )
+
+        if eid:
+            await emit(eid, EventType.STAGE_STARTED, {"stage": "authentication", "label": "Logging In"})
+            await emit(eid, EventType.OAUTH_DETECTED, {"url": login_url, "strategy": (auth.auth_strategy or "sso").lower()})
+
+        page = await context.new_page()
+        try:
+            try:
+                await page.goto(login_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception as nav_error:
+                return AuthResult(
+                    state=AuthState.AUTHENTICATION_TIMEOUT,
+                    failure_reason=AuthFailureReason.NETWORK_ERROR,
+                    reason=f"Could not reach login URL: {nav_error}",
+                )
+
+            before = await self._capture_auth_snapshot(page)
+
+            # Follow any external identity-provider redirect (bounded, no networkidle).
+            await self._wait_for_auth_completion(page, login_url, timeout_ms=10000)
+
+            username_field = await self._locate_username_field(page)
+            password_field = await self._locate_password_field(page)
+            if username_field and password_field:
+                if eid:
+                    await emit(eid, EventType.AUTH_FORM_DETECTED, {"url": page.url})
+                await username_field.fill(auth.username or "")
+                await password_field.fill(auth.password or "")
+                pre_url = page.url
+                submit_button = await self._locate_submit_button(page)
                 try:
-                    pre_login_url = attempt_url
-                    await page.goto(attempt_url, wait_until="domcontentloaded", timeout=15000)
-
-                    if eid:
-                        await emit(eid, EventType.PAGE_LOADED, {"url": attempt_url, "depth": 0, "status_code": 200})
-
-                    # Wait for React/SPA to render login form (critical for Next.js apps)
-                    await page.wait_for_timeout(2000)
-
-                    # Try to wait for password input to appear (strong signal of login form)
-                    try:
-                        await page.wait_for_selector('input[type="password"]', timeout=3000, state="visible")
-                    except Exception:
-                        # Fallback: wait for any input field
-                        try:
-                            await page.wait_for_selector('input:visible', timeout=2000)
-                        except Exception:
-                            pass  # Continue anyway, might be a different form structure
-
-                    pre_login_url = page.url
-
-                    username_field = await self._locate_username_field(page)
-                    if username_field and eid:
-                        await self._emit_action_with_position(eid, username_field, "fill", "Typing username / user ID...")
-
-                    password_field = await self._locate_password_field(page)
-                    if password_field and eid:
-                        await self._emit_action_with_position(eid, password_field, "fill", "Typing password...")
-
-                    if username_field and password_field:
-                        await username_field.fill(auth.username or "")
-                        self.logger.info("auth_username_filled", has_username=bool(auth.username))
-                        await password_field.fill(auth.password or "")
-                        self.logger.info("auth_password_filled", has_password=bool(auth.password))
-
-                        submit_button = await self._locate_submit_button(page)
+                    async with page.expect_navigation(wait_until="domcontentloaded", timeout=20000):
                         if submit_button:
-                            if eid:
-                                await self._emit_action_with_position(eid, submit_button, "click", "Clicking Login button...")
-
-                            self.logger.info("auth_submit_clicked", url=pre_login_url)
-
-                            # Phase 4.5 fix: Use proper navigation-aware submit with network inspection
-                            auth_state = await self._submit_and_wait_for_auth(
-                                page, submit_button, pre_login_url, eid,
-                            )
-                            post_login_url = auth_state["url"]
-                            login_succeeded = auth_state["success"]
-                            failure_reason = auth_state.get("failure_reason", AuthFailureReason.UNKNOWN_AUTH_ERROR)
-
-                            self.logger.info(
-                                "auth_result",
-                                success=login_succeeded,
-                                url_before=pre_login_url,
-                                url_after=post_login_url,
-                                url_changed=post_login_url != pre_login_url,
-                                cookies=len(auth_state.get("cookies", [])),
-                                has_local_storage_token=auth_state.get("local_storage_token") is not None,
-                                has_session_storage_token=auth_state.get("session_storage_token") is not None,
-                                status_code=auth_state.get("status_code"),
-                                failure_reason=failure_reason.value if not login_succeeded else None,
-                            )
-
-                            if login_succeeded:
-                                if eid and self._screenshots_dir:
-                                    await self._capture_login_screenshot(page, eid, post_login_url or attempt_url)
-                                if eid:
-                                    await emit(eid, EventType.STAGE_COMPLETED, {"stage": "authentication", "label": "Login Successful"})
-                                self.logger.info("login_succeeded", login_url=attempt_url, post_login_url=post_login_url)
-                                await page.wait_for_timeout(2000)
-                            else:
-                                self.logger.warning("login_failed", reason=failure_reason.value, pre_login_url=pre_login_url, post_login_url=post_login_url)
-                                await page.wait_for_timeout(2000)
+                            await submit_button.click(timeout=5000)
                         else:
-                            self.logger.warning("login_submit_button_not_found", url=attempt_url)
-                            await page.wait_for_timeout(1000)
-                    else:
-                        missing = []
-                        if not username_field:
-                            missing.append("username")
-                        if not password_field:
-                            missing.append("password")
-                        self.logger.info("login_fields_not_found_on_url", url=attempt_url, missing=missing)
-                        await page.wait_for_timeout(1000)
-                finally:
-                    await page.close()
-
-            if login_succeeded:
-                return True, post_login_url
+                            await page.keyboard.press("Enter")
+                except Exception:
+                    pass
+                await self._wait_for_auth_completion(page, pre_url)
+                await self._wait_for_auth_transition_settle(page, pre_url)
 
             if eid:
-                await emit(eid, EventType.STAGE_FAILED, {"stage": "authentication", "error": f"Login failed: {failure_reason.value}"})
-            return False, None
-        except Exception as e:
-            self.logger.warning("login_failed", error=str(e))
-            if eid:
-                await emit(eid, EventType.STAGE_FAILED, {"stage": "authentication", "error": str(e)})
-            return False, None
+                await emit(eid, EventType.AUTH_VERIFICATION_STARTED, {"url": page.url})
+
+            after = await self._capture_auth_snapshot(page)
+            challenge = await self._detect_auth_challenge(page)
+            error_text = await self._detect_auth_error_text(page)
+            evidence = self._build_auth_evidence(before, after, [], bool(challenge), bool(error_text))
+            result = await self._evaluate_auth_evidence(evidence, after, challenge, error_text, eid)
+            if result.success and eid:
+                await emit(eid, EventType.STAGE_COMPLETED, {"stage": "authentication", "label": "Login Successful"})
+            return result
+        finally:
+            await page.close()
 
     @staticmethod
     async def _locate_username_field(page: Page) -> Locator | None:
@@ -1885,327 +1968,347 @@ class CrawlerService(IService, LoggerMixin):
     async def _submit_and_wait_for_auth(
         self,
         page: Page,
-        submit_button: Locator,
+        submit_button: Locator | None,
         pre_login_url: str,
         eid: str | None,
-    ) -> dict[str, Any]:
+    ) -> AuthResult:
         """
-        Phase 4.5 fix: Submit login form and wait for authentication to complete.
+        Submit the login form, wait for the authentication transition, and
+        classify the result using generic, application-agnostic evidence.
 
-        Uses proper Playwright navigation handling, adaptive waiting, network
-        inspection, cookie/storage checks, and weighted multi-signal scoring.
-
-        Returns dict with keys: success, url, cookies, local_storage_token,
-        session_storage_token, status_code, signals, failure_reason.
+        Returns a structured ``AuthResult`` (never a raw score or dict).
         """
-        result: dict[str, Any] = {
-            "success": False, "url": pre_login_url, "cookies": [],
-            "local_storage_token": None, "session_storage_token": None,
-            "status_code": None, "signals": {}, "failure_reason": AuthFailureReason.UNKNOWN_AUTH_ERROR,
-        }
-
-        # Track network responses for auth inspection
         captured_responses: list[dict[str, Any]] = []
 
         async def _on_response(response):
             try:
-                captured_responses.append({
-                    "url": response.url,
-                    "status": response.status,
-                    "headers": dict(response.headers) if response.headers else {},
-                })
+                captured_responses.append({"url": response.url, "status": response.status})
             except Exception:
                 pass
 
         page.on("response", _on_response)
-
         try:
-            # Step 1: Click submit with proper navigation-aware handling
-            self.logger.info("auth_click_submit", pre_url=pre_login_url)
             if eid:
-                await emit(eid, EventType.BROWSER_ACTION, {"action": "click", "label": "Submitting login form..."})
+                await emit(eid, EventType.AUTH_SUBMITTED, {"url": pre_login_url})
+
+            before = await self._capture_auth_snapshot(page)
 
             try:
                 async with page.expect_navigation(wait_until="domcontentloaded", timeout=30000) as nav:
                     try:
-                        await submit_button.click(timeout=5000)
+                        if submit_button is not None:
+                            await submit_button.click(timeout=5000)
+                        else:
+                            await page.keyboard.press("Enter")
                     except Exception:
                         await page.keyboard.press("Enter")
-                    nav_response = await nav.value
-                    result["status_code"] = nav_response.status if nav_response else None
-                    self.logger.info("auth_navigation_completed", status=result["status_code"], url=page.url)
-                result["url"] = page.url
+                    try:
+                        await nav.value
+                    except Exception:
+                        pass
             except Exception:
-                # No full page navigation — SPA, in-place, or redirect in progress
+                # No full page navigation — SPA, in-place, or redirect in progress.
                 self.logger.info("auth_no_full_navigation", url=page.url)
 
-            # Step 2: Adaptive wait for auth completion
             await self._wait_for_auth_completion(page, pre_login_url)
+            await self._wait_for_auth_transition_settle(page, pre_login_url)
 
-            # Step 3: Capture current state
-            result["url"] = page.url
-
-            # Step 4: Inspect cookies, localStorage, sessionStorage, network
-            auth_state = await self._inspect_auth_state(page, captured_responses)
-            result.update(auth_state)
-
-            # Step 5: Multi-signal weighted scoring
-            signals = await self._evaluate_auth_signals(page, pre_login_url, result)
-            result["signals"] = signals
-            score = signals.get("score", 0)
-
-            # Step 6: Determine failure reason if applicable
-            failure_reason = self._determine_failure_reason(signals, result, captured_responses)
-            result["failure_reason"] = failure_reason
-
-            # Step 7: Verdict — need >= 3 weighted points (cookies 4, url_change 3, storage_token 4, etc)
-            if score >= 3:
-                result["success"] = True
-                self.logger.info("auth_success_detected", score=score, signals=signals)
-            else:
-                self.logger.warning("auth_failure_detected", score=score, failure_reason=failure_reason.value, signals=signals)
+            after = await self._capture_auth_snapshot(page)
 
             if eid:
-                await emit(eid, EventType.BROWSER_ACTION, {
-                    "action": "auth_check",
-                    "score": score,
-                    "success": result["success"],
-                    "failure_reason": failure_reason.value if not result["success"] else None,
-                })
+                await emit(eid, EventType.AUTH_VERIFICATION_STARTED, {"url": page.url})
 
+            challenge = await self._detect_auth_challenge(page)
+            error_text = await self._detect_auth_error_text(page)
+            evidence = self._build_auth_evidence(before, after, captured_responses, bool(challenge), bool(error_text))
+
+            return await self._evaluate_auth_evidence(evidence, after, challenge, error_text, eid)
         finally:
             try:
                 page.remove_listener("response", _on_response)
             except Exception:
                 pass
 
-        return result
-
     async def _wait_for_auth_completion(
-        self, page: Page, pre_login_url: str,
+        self, page: Page, pre_login_url: str, timeout_ms: int = 15000,
     ) -> None:
         """
-        Adaptive wait for authentication to finish.
+        Bounded adaptive wait for the post-submit authentication transition.
 
-        Tries multiple strategies with increasing timeouts:
-        1. URL change (traditional redirect) — 8s
-        2. Password field disappearance (SPA form unmount) — 5s
-        3. Post-login UI appearance (navbar, sidebar, logout) — 5s
-        4. Network idle (all XHR/fetch completed) — 10s
-        5. Hard fallback wait — 3s
+        Returns early when any of these generic conditions are observed:
+          - the URL changed from the pre-login URL,
+          - an authentication challenge or error text appeared.
+
+        Never waits on networkidle: SPAs and applications with polling /
+        websocket connections may never become network-idle.
         """
-        strategies = [
-            ("url_change", lambda: page.wait_for_url(lambda u: u != pre_login_url, timeout=8000), 0),
-            ("password_hidden", lambda: page.wait_for_selector('input[type="password"]', state="hidden", timeout=5000), 0),
-            ("post_login_ui", lambda: page.wait_for_selector(', '.join(_POST_LOGIN_UI_SELECTORS[:3]), timeout=5000), 0),
-            ("network_idle", lambda: page.wait_for_load_state("networkidle", timeout=10000), 0),
-        ]
-
-        for name, wait_fn, _ in strategies:
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        while time.monotonic() < deadline:
             try:
-                self.logger.info("auth_wait_strategy", strategy=name)
-                await wait_fn()
-                return
+                if page.url != pre_login_url:
+                    return
             except Exception:
-                self.logger.info("auth_wait_strategy_timeout", strategy=name)
-                continue
+                pass
+            try:
+                body = (await page.text_content("body", timeout=1000) or "").lower()
+                if any(p in body for p in _AUTH_CHALLENGE_TEXT_PATTERNS):
+                    return
+                if any(p in body for p in _AUTH_ERROR_TEXT_PATTERNS):
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
 
-        await page.wait_for_timeout(3000)
+    async def _wait_for_auth_transition_settle(
+        self, page: Page, pre_login_url: str, timeout_ms: int = 15000,
+    ) -> None:
+        """
+        Bounded wait for the post-login SPA transition to fully commit before the
+        verification snapshot is taken.
 
-    @staticmethod
-    async def _inspect_auth_state(
-        page: Page,
-        captured_responses: list[dict[str, Any]],
-    ) -> dict[str, Any]:
-        """Inspect cookies, localStorage, sessionStorage, and network responses for auth evidence."""
-        result: dict[str, Any] = {
-            "cookies": [],
-            "local_storage_token": None,
-            "session_storage_token": None,
-            "set_cookie_count": 0,
-            "auth_status_codes": [],
-        }
+        Next.js / Angular-style client-side navigation fetches the next route and
+        then swaps the DOM (and updates the URL bar) a beat later. Snapshotting in
+        that gap still shows the login form and can misclassify a successful login
+        as a credential failure. Returns early once:
+          - the password field has disappeared from the DOM, or
+          - an authentication challenge or error text appeared.
+        """
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        while time.monotonic() < deadline:
+            try:
+                if not await self._password_field_present(page):
+                    return
+            except Exception:
+                pass
+            try:
+                body = (await page.text_content("body", timeout=1000) or "").lower()
+                if any(p in body for p in _AUTH_CHALLENGE_TEXT_PATTERNS):
+                    return
+                if any(p in body for p in _AUTH_ERROR_TEXT_PATTERNS):
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
 
-        # Cookies
+    async def _wait_for_login_form(self, page: Page, timeout_ms: int = 8000) -> None:
+        """Bounded wait for a password field to appear (SPA / async form render)."""
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        while time.monotonic() < deadline:
+            try:
+                if await page.locator('input[type="password"]:visible').count() > 0:
+                    return
+            except Exception:
+                pass
+            await asyncio.sleep(0.5)
+
+    async def _password_field_present(self, page: Page) -> bool:
+        """True when a visible password field is present (generic login-form signal)."""
         try:
-            cookies = await page.context.cookies()
-            result["cookies"] = [{"name": c["name"], "domain": c.get("domain", "")} for c in cookies]
-            result["set_cookie_count"] = sum(1 for r in captured_responses if "set-cookie" in r.get("headers", {}))
+            return await page.locator('input[type="password"]:visible').count() > 0
         except Exception:
-            pass
+            return False
 
-        # localStorage token
+    async def _resolve_login_url(self, context: BrowserContext, auth) -> str | None:
+        """Return the explicit login URL, else discover it generically at runtime.
+
+        Prefers the user-supplied ``login_url``. When absent, navigates to the
+        application entry URL (following redirects) and looks for a login form,
+        then falls back to following a generic sign-in link. Never guesses a
+        conventional route from a hardcoded list.
+        """
+        if auth.login_url:
+            return auth.login_url
+        target = getattr(self, "_target_url", None)
+        if not target:
+            return None
+        return await self._discover_login_url(context, target)
+
+    async def _discover_login_url(self, context: BrowserContext, start_url: str) -> str | None:
+        """Generic runtime discovery of the authentication entry point."""
+        page = await context.new_page()
         try:
-            for key in ["token", "auth_token", "access_token", "jwt", "id_token", "user"]:
-                val = await page.evaluate(f"localStorage.getItem('{key}')")
-                if val:
-                    result["local_storage_token"] = key
-                    break
-        except Exception:
-            pass
+            try:
+                await page.goto(start_url, wait_until="domcontentloaded", timeout=15000)
+            except Exception:
+                return None
+            await self._wait_for_login_form(page, timeout_ms=5000)
+            if await self._password_field_present(page):
+                return page.url
 
-        # sessionStorage token
-        try:
-            for key in ["token", "auth_token", "access_token", "jwt"]:
-                val = await page.evaluate(f"sessionStorage.getItem('{key}')")
-                if val:
-                    result["session_storage_token"] = key
-                    break
-        except Exception:
-            pass
-
-        # Auth status codes from captured responses
-        result["auth_status_codes"] = [
-            r.get("status") for r in captured_responses
-            if any(k in (r.get("url") or "").lower() for k in ("/login", "/auth", "/signin", "/oauth", "/token"))
-        ]
-
-        return result
-
-    @staticmethod
-    async def _evaluate_auth_signals(
-        page: Page,
-        pre_login_url: str,
-        auth_state: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Weighted multi-signal scoring for authentication success."""
-        score = 0
-        signals: dict[str, Any] = {}
-
-        # Signal 1: URL changed to non-login page (strong)
-        current_url = auth_state.get("url", pre_login_url)
-        signals["url_changed"] = current_url != pre_login_url
-        if signals["url_changed"]:
-            parsed_pre = urlparse(pre_login_url)
-            parsed_post = urlparse(current_url)
-            if parsed_pre.path != parsed_post.path:
-                score += 3
-                signals["url_path_changed"] = True
-
-        # Signal 2: Auth cookies present (strongest)
-        cookies = auth_state.get("cookies") or []
-        auth_cookie_names = {"session", "connect.sid", "auth", "token", "jwt", "access_token", "JSESSIONID", "PHPSESSID"}
-        signals["auth_cookie_found"] = any(
-            any(ak in (c.get("name") or "").lower() for ak in auth_cookie_names)
-            for c in cookies
-        )
-        if signals["auth_cookie_found"]:
-            score += 4
-
-        # Signal 3: Token in localStorage or sessionStorage (strong)
-        signals["local_storage_token"] = auth_state.get("local_storage_token")
-        signals["session_storage_token"] = auth_state.get("session_storage_token")
-        if signals["local_storage_token"] or signals["session_storage_token"]:
-            score += 4
-
-        # Signal 4: HTTP status code indicates auth success
-        status_codes = auth_state.get("auth_status_codes") or []
-        has_2xx = any(200 <= (s or 0) < 300 for s in status_codes)
-        has_302 = any((s or 0) == 302 for s in status_codes)
-        signals["auth_2xx_response"] = has_2xx
-        signals["auth_302_redirect"] = has_302
-        if has_2xx or has_302:
-            score += 2
-
-        # Signal 5: Set-Cookie headers in response
-        signals["set_cookie_present"] = auth_state.get("set_cookie_count", 0) > 0
-        if signals["set_cookie_present"]:
-            score += 2
-
-        # Signal 6: Title changed away from login
-        try:
-            title = (await page.title()).lower()
-            signals["title"] = title
-            signals["title_post_login"] = any(kw in title for kw in _POST_LOGIN_TITLE_KW)
-            if signals["title_post_login"]:
-                score += 2
-            elif title and not any(k in title for k in ("login", "sign in", "signin", "log in", "authenticate")):
-                score += 1
-        except Exception:
-            pass
-
-        # Signal 7: Password field no longer visible
-        try:
-            pw_count = await page.locator('input[type="password"]:visible').count()
-            signals["password_field_gone"] = pw_count == 0
-            if signals["password_field_gone"]:
-                score += 2
-        except Exception:
-            pass
-
-        # Signal 8: Post-login UI appeared (nav, logout, profile)
-        try:
-            ui_detected = 0
-            for sel in _POST_LOGIN_UI_SELECTORS:
+            link = await self._find_login_link(page)
+            if link:
                 try:
-                    if await page.locator(sel).count() > 0:
-                        ui_detected += 1
-                        if ui_detected >= 2:
-                            break
+                    await page.goto(link, wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    return None
+                await self._wait_for_login_form(page, timeout_ms=5000)
+                if await self._password_field_present(page):
+                    return page.url
+            return None
+        finally:
+            await page.close()
+
+    async def _find_login_link(self, page: Page) -> str | None:
+        """Find a generic sign-in link on the page (text/role based, not route based)."""
+        for text in ("Sign in", "Log in", "Login", "Sign In", "Log In"):
+            for selector in (f'a:has-text("{text}")', f'[role="link"]:has-text("{text}")'):
+                try:
+                    loc = page.locator(selector).first
+                    if await loc.count() > 0:
+                        href = await loc.get_attribute("href")
+                        if href:
+                            return urljoin(page.url, href)
                 except Exception:
                     continue
-            signals["post_login_ui"] = ui_detected
-            if ui_detected >= 2:
-                score += 3
-            elif ui_detected >= 1:
-                score += 1
+        return None
+
+    async def _capture_auth_snapshot(self, page: Page) -> dict[str, Any]:
+        """Capture generic, application-agnostic auth state around a transition."""
+        snapshot: dict[str, Any] = {
+            "url": "",
+            "password_present": False,
+            "cookie_names": set(),
+            "storage_keys": set(),
+        }
+        try:
+            snapshot["url"] = page.url
         except Exception:
             pass
+        try:
+            snapshot["password_present"] = await page.locator('input[type="password"]:visible').count() > 0
+        except Exception:
+            pass
+        try:
+            snapshot["cookie_names"] = {c.get("name") for c in await page.context.cookies()}
+        except Exception:
+            pass
+        try:
+            keys: set[str] = set()
+            for store in ("localStorage", "sessionStorage"):
+                try:
+                    k = await page.evaluate(f"Object.keys(window.{store})")
+                    keys.update(f"{store}:{x}" for x in k)
+                except Exception:
+                    continue
+            snapshot["storage_keys"] = keys
+        except Exception:
+            pass
+        return snapshot
 
-        # Signal 0 (NEGATIVE): Auth error text detected
+    @staticmethod
+    def _build_auth_evidence(
+        before: dict[str, Any],
+        after: dict[str, Any],
+        captured_responses: list[dict[str, Any]],
+        challenge_detected: bool,
+        error_text_detected: bool,
+    ) -> AuthEvidence:
+        """Assemble generic authentication evidence from before/after snapshots."""
+        statuses = [int(r.get("status") or 0) for r in captured_responses]
+        return AuthEvidence(
+            navigation_changed=before.get("url") != after.get("url"),
+            redirect_completed=any(s in (301, 302, 303, 307, 308) for s in statuses),
+            login_form_disappeared=bool(before.get("password_present")) and not bool(after.get("password_present")),
+            cookies_changed=before.get("cookie_names") != after.get("cookie_names"),
+            storage_changed=before.get("storage_keys") != after.get("storage_keys"),
+            challenge_detected=challenge_detected,
+            network_auth_response=any(200 <= s < 300 for s in statuses),
+            error_text_detected=error_text_detected,
+        )
+
+    async def _detect_auth_challenge(self, page: Page) -> str | None:
+        """Return 'mfa' / 'captcha' if a generic authentication challenge is present."""
+        body = ""
         try:
             body = (await page.text_content("body", timeout=2000) or "").lower()
-            error_matched = [p for p in _AUTH_ERROR_TEXT_PATTERNS if p in body]
-            signals["auth_error_text"] = error_matched
-            if error_matched:
-                score -= 5  # Heavy penalty for detected auth error text
         except Exception:
             pass
-
-        # Signal 0b (NEGATIVE): aria-invalid on a form field
+        if any(p in body for p in _AUTH_CHALLENGE_TEXT_PATTERNS):
+            return "captcha" if "captcha" in body else "mfa"
         try:
-            aria_invalid = await page.locator('[aria-invalid="true"]:visible').count() > 0
-            signals["aria_invalid"] = aria_invalid
-            if aria_invalid:
-                score -= 3
+            if await page.locator(_OTP_FIELD_SELECTOR).count() > 0:
+                return "mfa"
         except Exception:
             pass
+        return None
 
-        signals["score"] = max(score, 0)
-        return signals
+    async def _detect_auth_error_text(self, page: Page) -> str | None:
+        """Return the first generic authentication error indicator found, if any."""
+        body = ""
+        try:
+            body = (await page.text_content("body", timeout=2000) or "").lower()
+        except Exception:
+            pass
+        matched = [p for p in _AUTH_ERROR_TEXT_PATTERNS if p in body]
+        return matched[0] if matched else None
 
-    def _determine_failure_reason(
+    async def _evaluate_auth_evidence(
         self,
-        signals: dict[str, Any],
-        auth_state: dict[str, Any],
-        captured_responses: list[dict[str, Any]],
-    ) -> AuthFailureReason:
-        """Determine the most specific failure reason from available evidence."""
-        error_text = signals.get("auth_error_text") or []
+        evidence: AuthEvidence,
+        after: dict[str, Any],
+        challenge: str | None,
+        error_text: str | None,
+        eid: str | None,
+    ) -> AuthResult:
+        """Classify the authentication transition from generic evidence alone."""
+        url = after.get("url")
 
-        if any("mfa" in e or "two-factor" in e or "verify your identity" in e for e in error_text):
-            return AuthFailureReason.MFA_REQUIRED
-        if any("captcha" in e for e in error_text):
-            return AuthFailureReason.CAPTCHA_REQUIRED
-        if any(k in " ".join(error_text) for k in ("invalid", "incorrect", "wrong", "not found", "access denied", "locked")):
-            return AuthFailureReason.INVALID_CREDENTIALS
-        if any(s == 401 for s in (auth_state.get("auth_status_codes") or [])):
-            return AuthFailureReason.AUTHORIZATION_DENIED
-        if any(s == 403 for s in (auth_state.get("auth_status_codes") or [])):
-            return AuthFailureReason.AUTHORIZATION_DENIED
+        if challenge == "captcha":
+            return AuthResult(
+                state=AuthState.AUTHENTICATION_FAILED,
+                post_login_url=url,
+                failure_reason=AuthFailureReason.CAPTCHA_REQUIRED,
+                reason="CAPTCHA challenge detected",
+            )
+        if challenge == "mfa":
+            if eid:
+                await emit(eid, EventType.MFA_REQUIRED, {"url": url})
+            return AuthResult(
+                state=AuthState.MFA_REQUIRED,
+                post_login_url=url,
+                failure_reason=AuthFailureReason.MFA_REQUIRED,
+                reason="Multi-factor authentication required",
+            )
 
-        # If signals look positive but score is low
-        if signals.get("auth_cookie_found") or signals.get("local_storage_token"):
-            return AuthFailureReason.LOGIN_SUCCESS_BUT_VALIDATION_FAILED
+        if evidence.error_text_detected and not evidence.login_form_disappeared:
+            return AuthResult(
+                state=AuthState.AUTHENTICATION_FAILED,
+                post_login_url=url,
+                failure_reason=AuthFailureReason.INVALID_CREDENTIALS,
+                reason=f"Authentication rejected: {error_text}",
+            )
 
-        if any(s and s >= 500 for s in (auth_state.get("auth_status_codes") or [])):
-            return AuthFailureReason.NETWORK_ERROR
+        # Authoritative, generic proof of authentication: the login form went
+        # away AND the session state actually changed (navigation/cookies/storage).
+        if evidence.login_form_disappeared and (
+            evidence.cookies_changed or evidence.storage_changed or evidence.navigation_changed
+        ):
+            if eid:
+                await emit(eid, EventType.AUTHENTICATED, {"url": url})
+            return AuthResult(state=AuthState.AUTHENTICATED, post_login_url=url)
 
-        if not signals.get("url_changed") and not signals.get("password_field_gone"):
-            if signals.get("score", 0) <= 0:
-                return AuthFailureReason.LOGIN_TIMEOUT
+        # Form still present with no state change → credentials did not work.
+        if (
+            not evidence.login_form_disappeared
+            and not evidence.navigation_changed
+            and not evidence.cookies_changed
+            and not evidence.storage_changed
+        ):
+            return AuthResult(
+                state=AuthState.AUTHENTICATION_FAILED,
+                post_login_url=url,
+                failure_reason=AuthFailureReason.INVALID_CREDENTIALS,
+                reason="Login form still present after submit",
+            )
 
-        return AuthFailureReason.UNKNOWN_AUTH_ERROR
+        # Otherwise we cannot authoritatively verify authentication.
+        if eid:
+            await emit(eid, EventType.AUTHENTICATION_UNKNOWN, {"url": url})
+        return AuthResult(
+            state=AuthState.AUTHENTICATION_UNKNOWN,
+            post_login_url=url,
+            reason="No authoritative authentication signal observed",
+        )
 
     async def _capture_login_screenshot(self, page: Page, eid: str, url: str) -> None:
         try:

@@ -43,10 +43,10 @@ export function TestPlanSummary() {
   const automationCoverage = confidence.automationCoverage || (scenarios.length > 0 ? Math.round(((scenarios.length - lowCount) / scenarios.length) * 100) : 0);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-4 space-y-4">
+    <div className="rounded-xl border border-border bg-muted/80 p-4 space-y-4">
       <div className="flex items-center gap-2">
         <Gauge className="h-4 w-4 text-blue-400" />
-        <p className="text-xs font-semibold text-zinc-200">AI Test Plan Summary</p>
+        <p className="text-xs font-semibold text-foreground">AI Test Plan Summary</p>
         {testPlanGenerated && (
           <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
             Generated
@@ -62,10 +62,10 @@ export function TestPlanSummary() {
           { label: 'UI Components', value: totalUIComponents, icon: Sliders, color: 'text-cyan-400' },
           { label: 'Scenarios', value: totalScenarios, icon: FileText, color: 'text-emerald-400' },
         ].map((s) => (
-          <div key={s.label} className="p-2.5 rounded-lg bg-zinc-800/50 border border-zinc-800 text-center">
+          <div key={s.label} className="p-2.5 rounded-lg bg-accent border border-border text-center">
             <s.icon className={cn('h-4 w-4 mx-auto mb-1', s.color)} />
             <p className={cn('text-lg font-bold tabular-nums', s.color)}>{s.value}</p>
-            <p className="text-[9px] text-zinc-500">{s.label}</p>
+            <p className="text-[9px] text-muted-foreground">{s.label}</p>
           </div>
         ))}
       </div>
@@ -73,7 +73,7 @@ export function TestPlanSummary() {
       {/* Category breakdown */}
       {scenarios.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Scenario Breakdown</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Scenario Breakdown</p>
           <div className="grid grid-cols-4 gap-2">
             {[
               { label: 'Functional', value: functionalCount, color: 'text-blue-400' },
@@ -81,9 +81,9 @@ export function TestPlanSummary() {
               { label: 'Boundary', value: boundaryCount, color: 'text-amber-400' },
               { label: 'Auth/Security', value: authCount + securityCount, color: 'text-purple-400' },
             ].map((s) => (
-              <div key={s.label} className="p-2 rounded-lg bg-zinc-800/30">
+              <div key={s.label} className="p-2 rounded-lg bg-accent/60">
                 <p className={cn('text-sm font-bold tabular-nums', s.color)}>{s.value}</p>
-                <p className="text-[9px] text-zinc-500">{s.label}</p>
+                <p className="text-[9px] text-muted-foreground">{s.label}</p>
               </div>
             ))}
           </div>
@@ -93,7 +93,7 @@ export function TestPlanSummary() {
       {/* Priority breakdown */}
       {scenarios.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Priority Distribution</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Priority Distribution</p>
           <div className="space-y-1.5">
             {[
               { label: 'Critical', value: criticalCount, color: 'bg-red-500' },
@@ -102,14 +102,14 @@ export function TestPlanSummary() {
               { label: 'Low', value: lowCount, color: 'bg-zinc-500' },
             ].map((s) => (
               <div key={s.label} className="flex items-center gap-2">
-                <span className="text-[10px] text-zinc-400 w-14 shrink-0">{s.label}</span>
-                <div className="flex-1 h-2 bg-zinc-800 rounded-full overflow-hidden">
+                <span className="text-[10px] text-muted-foreground w-14 shrink-0">{s.label}</span>
+                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className={cn('h-full rounded-full transition-all duration-500', s.color)}
                     style={{ width: `${(s.value / Math.max(totalScenarios, 1)) * 100}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-mono text-zinc-400 w-8 text-right">{s.value}</span>
+                <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">{s.value}</span>
               </div>
             ))}
           </div>
@@ -125,13 +125,13 @@ export function TestPlanSummary() {
             </span>
             <span className="text-sm font-bold text-emerald-400">{automationCoverage}%</span>
           </div>
-          <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400"
               style={{ width: `${automationCoverage}%` }}
             />
           </div>
-          <p className="text-[10px] text-zinc-500 mt-1.5">
+          <p className="text-[10px] text-muted-foreground mt-1.5">
             {automationCoverage >= 90 ? 'Excellent automation potential' : automationCoverage >= 70 ? 'Good automation coverage' : 'Moderate automation coverage'}
             {' — '}{totalScenarios - lowCount} of {totalScenarios} scenarios are automatable
           </p>

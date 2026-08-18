@@ -37,7 +37,7 @@ function StatCard({
   return (
     <div className={cn(
       'relative p-3 rounded-xl border transition-all duration-300',
-      animate ? 'border-blue-500/40 bg-blue-500/10' : 'border-zinc-800 bg-zinc-900',
+      animate ? 'border-blue-500/40 bg-blue-500/10' : 'border-border bg-muted',
     )}>
       <div className="flex items-center justify-between mb-1.5">
         <Icon className={cn('h-4 w-4', color)} />
@@ -48,7 +48,7 @@ function StatCard({
       <p className={cn('text-2xl font-bold tabular-nums transition-colors duration-300', animate ? 'text-blue-300' : color)}>
         {value}
       </p>
-      <p className="text-[10px] text-zinc-500 mt-0.5">{label}</p>
+      <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
     </div>
   );
 }

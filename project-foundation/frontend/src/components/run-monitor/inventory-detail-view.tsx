@@ -99,7 +99,7 @@ export function InventoryDetailView() {
 
   if (!summary && !data && loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-zinc-500 gap-2">
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
         <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
         <p className="text-xs">Loading inventory data...</p>
       </div>
@@ -108,7 +108,7 @@ export function InventoryDetailView() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-16 text-zinc-500 gap-2">
+      <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
         <span className="text-xs">Loading detailed inventory...</span>
       </div>
@@ -141,22 +141,22 @@ export function InventoryDetailView() {
           { label: 'Buttons', value: stats?.total_buttons ?? summary?.button_count ?? 6, icon: Square, color: 'text-sky-400' },
           { label: 'Inputs', value: stats?.total_inputs ?? summary?.input_count ?? 1, icon: TextCursor, color: 'text-emerald-400' },
         ].map((s) => (
-          <div key={s.label} className="p-3 bg-zinc-900 rounded-xl border border-zinc-800 text-center">
+          <div key={s.label} className="p-3 bg-muted rounded-xl border border-border text-center">
             <s.icon className={cn('h-4 w-4 mx-auto mb-1', s.color)} />
             <p className={cn('text-lg font-bold tabular-nums', s.color)}>{s.value}</p>
-            <p className="text-[10px] text-zinc-500">{s.label}</p>
+            <p className="text-[10px] text-muted-foreground">{s.label}</p>
           </div>
         ))}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Pages tree */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-3">
-          <p className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <p className="text-xs font-semibold text-foreground flex items-center gap-2">
             <Globe className="h-3.5 w-3.5 text-blue-400" /> Discovered Pages
           </p>
           {pages.length === 0 ? (
-            <p className="text-[10px] text-zinc-600">No page data available</p>
+            <p className="text-[10px] text-muted-foreground">No page data available</p>
           ) : (
             <div className="space-y-1 max-h-64 overflow-y-auto">
               {pages.map((page) => (
@@ -164,16 +164,16 @@ export function InventoryDetailView() {
                   key={page.page_id}
                   onClick={() => setSelectedPage(selectedPage === page.page_id ? null : page.page_id)}
                   className={cn(
-                    'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors text-left hover:bg-zinc-800/60',
-                    selectedPage === page.page_id && 'bg-zinc-800 border border-blue-500/30',
+                    'w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs transition-colors text-left hover:bg-accent',
+                    selectedPage === page.page_id && 'bg-muted border border-blue-500/30',
                   )}
                 >
                   <Globe className="h-3 w-3 text-blue-400 shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-zinc-200 truncate">{page.title || 'Untitled'}</p>
-                    <p className="text-[9px] text-zinc-500 truncate">{page.url}</p>
+                    <p className="font-medium text-foreground truncate">{page.title || 'Untitled'}</p>
+                    <p className="text-[9px] text-muted-foreground truncate">{page.url}</p>
                   </div>
-                  <span className="text-[9px] text-zinc-600 shrink-0">d={page.depth}</span>
+                  <span className="text-[9px] text-muted-foreground shrink-0">d={page.depth}</span>
                   {page.status_code && (
                     <span className={cn(
                       'text-[9px] font-mono shrink-0',
@@ -189,8 +189,8 @@ export function InventoryDetailView() {
         </div>
 
         {/* Element details */}
-        <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4 space-y-3">
-          <p className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <p className="text-xs font-semibold text-foreground flex items-center gap-2">
             <Box className="h-3.5 w-3.5 text-violet-400" /> UI Elements
           </p>
 
@@ -198,19 +198,19 @@ export function InventoryDetailView() {
             {/* Buttons */}
             {buttons.length > 0 && (
               <div>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
                   Buttons ({buttons.length})
                 </p>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
                   {buttons.slice(0, 10).map((btn, i) => (
-                    <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-zinc-800/50">
+                    <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-accent">
                       <Square className="h-3 w-3 text-sky-400 shrink-0" />
-                      <span className="text-[11px] text-zinc-300 truncate flex-1">{btn.text || 'Unlabeled'}</span>
-                      <span className="text-[9px] text-zinc-600">{btn.button_type || 'button'}</span>
+                      <span className="text-[11px] text-foreground truncate flex-1">{btn.text || 'Unlabeled'}</span>
+                      <span className="text-[9px] text-muted-foreground">{btn.button_type || 'button'}</span>
                     </div>
                   ))}
                   {buttons.length > 10 && (
-                    <p className="text-[9px] text-zinc-600 text-center">+{buttons.length - 10} more</p>
+                    <p className="text-[9px] text-muted-foreground text-center">+{buttons.length - 10} more</p>
                   )}
                 </div>
               </div>
@@ -219,20 +219,20 @@ export function InventoryDetailView() {
             {/* Inputs */}
             {inputs.length > 0 && (
               <div>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
                   Input Fields ({inputs.length})
                 </p>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
                   {inputs.slice(0, 10).map((inp, i) => (
-                    <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-zinc-800/50">
+                    <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-accent">
                       <TextCursor className="h-3 w-3 text-emerald-400 shrink-0" />
-                      <span className="text-[11px] text-zinc-300 truncate flex-1">{inp.name || inp.input_type || 'Unnamed'}</span>
-                      <span className="text-[9px] text-zinc-600">{inp.input_type}</span>
+                      <span className="text-[11px] text-foreground truncate flex-1">{inp.name || inp.input_type || 'Unnamed'}</span>
+                      <span className="text-[9px] text-muted-foreground">{inp.input_type}</span>
                       {inp.required && <span className="text-[9px] text-red-400">*required</span>}
                     </div>
                   ))}
                   {inputs.length > 10 && (
-                    <p className="text-[9px] text-zinc-600 text-center">+{inputs.length - 10} more</p>
+                    <p className="text-[9px] text-muted-foreground text-center">+{inputs.length - 10} more</p>
                   )}
                 </div>
               </div>
@@ -241,18 +241,18 @@ export function InventoryDetailView() {
             {/* Links */}
             {links.length > 0 && (
               <div>
-                <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold mb-1">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
                   Links ({links.length})
                 </p>
                 <div className="space-y-1 max-h-32 overflow-y-auto">
                   {links.slice(0, 10).map((link, i) => (
-                    <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-zinc-800/50">
+                    <div key={i} className="flex items-center gap-2 px-2 py-1.5 rounded bg-accent">
                       <Link2 className="h-3 w-3 text-cyan-400 shrink-0" />
-                      <span className="text-[11px] text-zinc-300 truncate flex-1">{link[1] || link[0]}</span>
+                      <span className="text-[11px] text-foreground truncate flex-1">{link[1] || link[0]}</span>
                     </div>
                   ))}
                   {links.length > 10 && (
-                    <p className="text-[9px] text-zinc-600 text-center">+{links.length - 10} more</p>
+                    <p className="text-[9px] text-muted-foreground text-center">+{links.length - 10} more</p>
                   )}
                 </div>
               </div>

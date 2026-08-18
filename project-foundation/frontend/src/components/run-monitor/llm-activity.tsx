@@ -22,7 +22,7 @@ function LLMCallCard({ call }: { call: LLMCall }) {
     <div className={cn(
       'rounded-xl border px-4 py-3 space-y-3 transition-all duration-300',
       call.status === 'running'   && 'border-blue-500/50 bg-blue-500/5 animate-pulse-border',
-      call.status === 'completed' && 'border-zinc-800 bg-zinc-900/50',
+      call.status === 'completed' && 'border-border bg-muted/50',
       call.status === 'failed'    && 'border-red-500/50 bg-red-500/5',
     )}>
       {/* Header */}
@@ -39,9 +39,9 @@ function LLMCallCard({ call }: { call: LLMCall }) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-zinc-200 truncate">{call.purpose ?? 'LLM Call'}</p>
+          <p className="text-sm font-medium text-foreground truncate">{call.purpose ?? 'LLM Call'}</p>
           {call.model && (
-            <p className="text-[10px] text-zinc-500 font-mono">{call.model}</p>
+            <p className="text-[10px] text-muted-foreground font-mono">{call.model}</p>
           )}
         </div>
 
@@ -54,7 +54,7 @@ function LLMCallCard({ call }: { call: LLMCall }) {
           )}>
             {formatDuration(call.startedAt, call.completedAt)}
           </p>
-          <p className="text-[10px] text-zinc-600 capitalize">{call.status}</p>
+          <p className="text-[10px] text-muted-foreground capitalize">{call.status}</p>
         </div>
       </div>
 
@@ -62,24 +62,24 @@ function LLMCallCard({ call }: { call: LLMCall }) {
       {call.status === 'running' && (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
+            <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
               <div className="h-full bg-gradient-to-r from-blue-600 to-blue-400 rounded-full animate-progress-indeterminate" />
             </div>
-            <span className="text-[10px] text-zinc-500 shrink-0">Processing...</span>
+            <span className="text-[10px] text-muted-foreground shrink-0">Processing...</span>
           </div>
         </div>
       )}
 
       {call.status === 'completed' && (
-        <div className="flex items-center gap-4 text-[10px] text-zinc-500">
+        <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
           {call.promptTokens && (
             <span className="flex items-center gap-1">
-              <Cpu className="h-3 w-3" /> Prompt: <span className="text-zinc-300 font-mono">{call.promptTokens?.toLocaleString()}</span>
+              <Cpu className="h-3 w-3" /> Prompt: <span className="text-foreground font-mono">{call.promptTokens?.toLocaleString()}</span>
             </span>
           )}
           {call.responseTokens && (
             <span className="flex items-center gap-1">
-              <Zap className="h-3 w-3" /> Response: <span className="text-zinc-300 font-mono">{call.responseTokens?.toLocaleString()}</span>
+              <Zap className="h-3 w-3" /> Response: <span className="text-foreground font-mono">{call.responseTokens?.toLocaleString()}</span>
             </span>
           )}
         </div>
@@ -94,7 +94,7 @@ export function LLMActivity() {
 
   if (calls.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-zinc-600 gap-3">
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
         <Bot className="h-10 w-10 animate-pulse" />
         <p className="text-xs">LLM calls will appear here when test design begins.</p>
       </div>

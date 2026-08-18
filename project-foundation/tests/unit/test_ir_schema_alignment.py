@@ -253,10 +253,58 @@ class TestIRGenerationAgentParsing:
             "parallel_config": {}
         })
         
-        ir = agent._parse_ir_response(valid_ir_json)
+        ir = await agent._parse_ir_response(valid_ir_json)
         
         assert isinstance(ir, CodeGenerationIR)
         assert ir.metadata.generator == "IRGenerationAgent"
+
+    @pytest.mark.asyncio
+    async def test_agent_recovers_from_transient_bad_json(self):
+        """Regression: one malformed JSON response must not fail IR generation.
+
+        Mirrors the observed run where mistral-medium-3-5 emitted invalid JSON
+        ("Expecting ',' delimiter") on a large IR generation. The agent must
+        regenerate instead of hard-failing.
+        """
+        mock_llm = AsyncMock()
+        mock_llm.model = "test-model"
+        mock_llm.default_max_tokens = 4096
+        valid_ir_json = json.dumps({
+            "metadata": {
+                "generator": "IRGenerationAgent",
+                "generated_at": "2024-01-01T00:00:00Z",
+                "ir_version": "1.0.0",
+                "validation_status": "pending",
+                "total_pages": 0,
+                "total_elements": 0,
+                "total_flows": 0,
+                "total_modules": 0,
+            },
+            "environment": {
+                "base_url": "http://localhost:3000",
+                "auth_required": False,
+                "variables": {},
+                "timeouts": {},
+                "browsers": ["chromium"],
+            },
+            "pages": [],
+            "modules": [],
+            "dependencies": [],
+            "common_elements": [],
+            "common_flows": [],
+            "retry_config": {},
+            "parallel_config": {},
+        })
+        mock_llm.complete = AsyncMock(side_effect=[
+            "not valid json at all",
+            valid_ir_json,
+        ])
+        agent = IRGenerationAgent(mock_llm)
+
+        ir = await agent._complete_and_parse_ir("generate ir", 10)
+
+        assert isinstance(ir, CodeGenerationIR)
+        assert mock_llm.complete.call_count == 2
 
     @pytest.mark.asyncio
     async def test_agent_repairs_missing_metadata(self):
@@ -280,7 +328,7 @@ class TestIRGenerationAgentParsing:
             "dependencies": []
         })
         
-        ir = agent._parse_ir_response(incomplete_ir_json)
+        ir = await agent._parse_ir_response(incomplete_ir_json)
         
         # Should be repaired
         assert ir.metadata.generator == "IRGenerationAgent"
@@ -312,7 +360,7 @@ class TestIRGenerationAgentParsing:
 
 This IR includes all required fields."""
         
-        ir = agent._parse_ir_response(response_with_markdown)
+        ir = await agent._parse_ir_response(response_with_markdown)
         
         assert isinstance(ir, CodeGenerationIR)
 
@@ -389,7 +437,7 @@ class TestErrorReporting:
         })
         
         try:
-            agent._parse_ir_response(invalid_ir_json)
+            await agent._parse_ir_response(invalid_ir_json)
             pytest.fail("Should have raised AgentExecutionError")
         except AgentExecutionError as e:
             error_msg = str(e)

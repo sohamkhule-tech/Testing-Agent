@@ -83,6 +83,11 @@ class AuthContext:
     def is_populated(self) -> bool:
         return bool(self.username and self.password)
 
+    def has_auth_config(self) -> bool:
+        """True when any actionable auth detail is present (form credentials or
+        a supplied login URL entry point)."""
+        return self.is_populated() or bool(self.login_url)
+
     def safe_summary(self) -> dict:
         """Returns a log-safe representation — no sensitive values."""
         return {
@@ -492,7 +497,7 @@ class CredentialStore(LoggerMixin):
 
     def save(self, workspace_path: str, auth: AuthContext) -> None:
         """Encrypt and save credentials to workspace."""
-        if not auth.is_populated():
+        if not auth.has_auth_config():
             return
         data = {
             "username": auth.username,

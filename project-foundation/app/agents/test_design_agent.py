@@ -5,6 +5,7 @@ AI Agent responsible for analyzing application inventory and
 producing a comprehensive, structured test plan.
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -161,6 +162,49 @@ class TestDesignAgent(IAgent, LoggerMixin):
         except Exception as e:
             self.logger.error("test_design_agent_failed", error=str(e))
             raise AgentExecutionError(f"Test design agent execution failed: {str(e)}")
+
+    MAX_JSON_RETRIES = 3
+
+    async def _complete_and_parse_json(self, user_prompt: str, system_prompt: str) -> dict:
+        """Call the LLM and parse its JSON output, retrying on malformed JSON.
+
+        Models — especially smaller ones — occasionally emit invalid JSON on long,
+        exhaustive generations. A single bad response must not hard-fail the run,
+        so the call is retried a bounded number of times before giving up. The raw
+        response is never logged; only parse status is.
+        """
+        last_error = ""
+        for attempt in range(1, self.MAX_JSON_RETRIES + 1):
+            try:
+                response = await self.llm_client.complete(
+                    prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    temperature=0.7,
+                    max_tokens=self.llm_client.default_max_tokens,
+                )
+            except Exception as e:
+                raise AgentExecutionError(f"LLM analysis failed: {str(e)}") from e
+
+            if not response:
+                last_error = "LLM returned empty response"
+            else:
+                try:
+                    return self._extract_json(response)
+                except AgentExecutionError as e:
+                    last_error = str(e)
+
+            if attempt < self.MAX_JSON_RETRIES:
+                self.logger.warning(
+                    "test_design_json_retry",
+                    attempt=attempt,
+                    max_attempts=self.MAX_JSON_RETRIES,
+                    error=last_error,
+                )
+                await asyncio.sleep(0.5 * attempt)
+
+        raise AgentExecutionError(
+            f"LLM returned invalid JSON after {self.MAX_JSON_RETRIES} attempts: {last_error}"
+        )
 
     async def _generate_test_plan(
         self,
@@ -419,22 +463,8 @@ IMPORTANT — Coverage Requirements:
 - Group related scenarios into clearly named modules (e.g. "Login Module", "Dashboard Module", "Forms Module").
 - Identify the top high-risk areas and mark at least 30% of scenarios as regression candidates."""
 
-        # Call LLM
-        try:
-            response = await self.llm_client.complete(
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                temperature=0.7,
-                max_tokens=self.llm_client.default_max_tokens,
-            )
-        except Exception as e:
-            raise AgentExecutionError(f"LLM analysis failed: {str(e)}")
-
-        if not response:
-            raise AgentExecutionError("LLM returned empty response")
-
-        # Parse response into TestPlan (robust JSON extraction)
-        response_data = self._extract_json(response)
+        # Call LLM and parse its JSON with a bounded retry on malformed output.
+        response_data = await self._complete_and_parse_json(user_prompt, system_prompt)
 
         def _safe_str(val: Any, default: str = "") -> str:
             if isinstance(val, dict):

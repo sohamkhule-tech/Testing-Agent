@@ -100,12 +100,12 @@ export function LLMStatusCard() {
   const isActive = llmMetrics.status !== 'Idle' && llmMetrics.status !== 'Response Received';
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-900/50 overflow-hidden">
+    <div className="rounded-lg border border-border bg-gradient-to-br from-muted to-muted/50 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/80">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/80">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-violet-400" />
-          <h3 className="text-sm font-semibold text-zinc-200">LLM Provider</h3>
+          <h3 className="text-sm font-semibold text-foreground">LLM Provider</h3>
         </div>
         {isActive && (
           <div className="flex items-center gap-1.5">
@@ -113,7 +113,7 @@ export function LLMStatusCard() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
             </span>
-            <span className="text-[10px] text-zinc-500 font-medium">ACTIVE</span>
+            <span className="text-[10px] text-muted-foreground font-medium">ACTIVE</span>
           </div>
         )}
       </div>
@@ -139,7 +139,7 @@ export function LLMStatusCard() {
 
         {/* Token Metrics */}
         <div className="space-y-2">
-          <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
             Token Usage
           </div>
           <div className="grid grid-cols-3 gap-2">
@@ -163,11 +163,11 @@ export function LLMStatusCard() {
         </div>
 
         {/* Additional Info */}
-        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800">
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
           <InfoItem
             label="Streaming"
             value={llmMetrics.isStreaming ? 'Yes' : 'No'}
-            valueColor={llmMetrics.isStreaming ? 'text-emerald-400' : 'text-zinc-500'}
+            valueColor={llmMetrics.isStreaming ? 'text-emerald-400' : 'text-muted-foreground'}
           />
           <InfoItem
             label="JSON Validation"
@@ -183,7 +183,7 @@ export function LLMStatusCard() {
           <InfoItem
             label="Retry Count"
             value={llmMetrics.retryCount.toString()}
-            valueColor={llmMetrics.retryCount > 0 ? 'text-amber-400' : 'text-zinc-500'}
+            valueColor={llmMetrics.retryCount > 0 ? 'text-amber-400' : 'text-muted-foreground'}
           />
         </div>
       </div>
@@ -205,10 +205,10 @@ function MetricItem({
   animated?: boolean;
 }) {
   return (
-    <div className="rounded-md bg-zinc-800/50 p-2.5">
+    <div className="rounded-md bg-accent p-2.5">
       <div className="flex items-center gap-1.5 mb-1">
         <Icon className={cn('h-3 w-3', color, animated && 'animate-spin')} />
-        <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wide">
+        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
           {label}
         </span>
       </div>
@@ -239,7 +239,7 @@ function TokenMetric({
       >
         {formatNumber(value)}
       </p>
-      <p className="text-[9px] text-zinc-600 uppercase tracking-wide mt-0.5">{label}</p>
+      <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</p>
     </div>
   );
 }
@@ -255,7 +255,7 @@ function InfoItem({
 }) {
   return (
     <div>
-      <p className="text-[10px] text-zinc-600 uppercase tracking-wide mb-0.5">{label}</p>
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
       <p className={cn('text-xs font-medium', valueColor)}>{value}</p>
     </div>
   );
@@ -293,11 +293,11 @@ export function CurrentActivityPanel() {
   const isActive = progress > 0 && progress < 100;
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-gradient-to-br from-blue-950/20 to-cyan-950/20 overflow-hidden">
+    <div className="rounded-lg border border-border bg-gradient-to-br from-blue-950/20 to-cyan-950/20 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 bg-zinc-900/60">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted">
         <Activity className="h-4 w-4 text-cyan-400" />
-        <h3 className="text-sm font-semibold text-zinc-200">Current Activity</h3>
+        <h3 className="text-sm font-semibold text-foreground">Current Activity</h3>
         {isActive && (
           <Loader2 className="h-3.5 w-3.5 text-cyan-400 animate-spin ml-auto" />
         )}
@@ -307,14 +307,14 @@ export function CurrentActivityPanel() {
       <div className="p-4 space-y-3">
         {/* Main Activity */}
         <div>
-          <div className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide mb-1.5">
+          <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
             Current Operation
           </div>
           <p className="text-base font-semibold text-cyan-300">{currentActivity.activity}</p>
         </div>
 
         {/* Details Grid */}
-        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/50">
+        <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
           <ActivityDetail
             label="Current File"
             value={currentActivity.currentFile}
@@ -357,12 +357,12 @@ function ActivityDetail({
   color: string;
 }) {
   return (
-    <div className="rounded-md bg-zinc-900/50 p-2.5">
+    <div className="rounded-md bg-muted/50 p-2.5">
       <div className="flex items-center gap-1.5 mb-1">
         <Icon className={cn('h-3 w-3', color)} />
-        <span className="text-[10px] text-zinc-600 uppercase tracking-wide">{label}</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</span>
       </div>
-      <p className={cn('text-xs font-medium truncate', value ? color : 'text-zinc-600')}>
+      <p className={cn('text-xs font-medium truncate', value ? color : 'text-muted-foreground')}>
         {value || '—'}
       </p>
     </div>
@@ -409,10 +409,10 @@ export function LiveMetricsDashboard() {
   ]);
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="rounded-lg border border-border bg-muted/50 p-4">
       <div className="flex items-center gap-2 mb-3">
-        <BarChart3 className="h-4 w-4 text-zinc-400" />
-        <h3 className="text-sm font-semibold text-zinc-200">Live Metrics</h3>
+        <BarChart3 className="h-4 w-4 text-muted-foreground" />
+        <h3 className="text-sm font-semibold text-foreground">Live Metrics</h3>
       </div>
 
       <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
@@ -421,15 +421,15 @@ export function LiveMetricsDashboard() {
         <MetricCard label="Tests" value={metrics.testFiles} color="text-emerald-400" />
         <MetricCard label="Scenarios" value={metrics.scenarios} color="text-amber-400" />
         <MetricCard label="Fixtures" value={metrics.fixtures} color="text-pink-400" />
-        <MetricCard label="Config" value={metrics.config} color="text-zinc-400" />
+        <MetricCard label="Config" value={metrics.config} color="text-muted-foreground" />
         <MetricCard label="Helpers" value={metrics.helpers} color="text-cyan-400" />
       </div>
 
       {metrics.remaining > 0 && (
-        <div className="mt-3 pt-3 border-t border-zinc-800">
+        <div className="mt-3 pt-3 border-t border-border">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-zinc-500">Remaining in queue</span>
-            <span className="font-mono font-semibold text-zinc-300">{metrics.remaining}</span>
+            <span className="text-muted-foreground">Remaining in queue</span>
+            <span className="font-mono font-semibold text-foreground">{metrics.remaining}</span>
           </div>
         </div>
       )}
@@ -447,9 +447,9 @@ function MetricCard({
   color: string;
 }) {
   return (
-    <div className="p-2 rounded-lg bg-zinc-800/50 text-center">
+    <div className="p-2 rounded-lg bg-accent text-center">
       <p className={cn('text-sm font-bold tabular-nums', color)}>{value}</p>
-      <p className="text-[9px] text-zinc-600 uppercase tracking-wide mt-0.5">{label}</p>
+      <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</p>
     </div>
   );
 }

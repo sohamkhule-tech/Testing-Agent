@@ -189,7 +189,6 @@ class HybridIntentParser(LoggerMixin):
         # then are supplemented with inline "username x password y" patterns.
         parsed, auth = self._parser.parse(raw_text)
         auth = self._supplement_credentials(raw_text, auth)
-        auth = self._supplement_login_url(raw_text, auth)
         redacted = self._redact_credentials(raw_text)
 
         return ParsedIntent(
@@ -222,19 +221,6 @@ class HybridIntentParser(LoggerMixin):
             m = re.search(pattern, text, re.IGNORECASE)
             if m and m.group(1).lower() not in _INLINE_CRED_STOPWORDS:
                 setattr(auth, field_name, m.group(1))
-        return auth
-
-    @staticmethod
-    def _supplement_login_url(text: str, auth: Any) -> Any:
-        """Detect a login-page URL even without an explicit ``login url:`` prefix."""
-        if auth.login_url:
-            return auth
-        for u in re.findall(_URL_PATTERN, text):
-            u = re.sub(r"[.,;:!?\"')\]]+$", "", u)
-            low = u.lower()
-            if any(k in low for k in ("/login", "/signin", "/sign-in", "/auth", "login.", "auth.")):
-                auth.login_url = u
-                break
         return auth
 
     @classmethod

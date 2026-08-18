@@ -43,8 +43,8 @@ class TestHybridIntentParserDeterministic:
         parser = HybridIntentParser(llm_client=None)
         raw = (
             "Test the dashboard. Login with username admin and password secret123 at "
-            "https://login.example.com/auth. Use Chromium browser on staging at "
-            "https://app.example.com"
+            "https://app.example.com. Use Chromium browser on staging. "
+            "Login URL: https://login.example.com/auth"
         )
         result = await parser.parse(raw, use_llm=False)
 

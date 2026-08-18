@@ -46,19 +46,19 @@ export function ProjectDetails({
   const lastRunAt = runs?.[0]?.started_at || project.last_run_at;
 
   return (
-    <Card className="border-zinc-800 bg-zinc-950/60">
+    <Card className="border-border bg-card">
       <CardHeader className="pb-3">
         <div className="flex items-center gap-2">
-          <Shield className="h-4 w-4 text-zinc-400" />
-          <CardTitle className="text-base text-zinc-200">Details</CardTitle>
+          <Shield className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-base text-foreground">Details</CardTitle>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <Row label="Created" value={formatDateTime(project.created_at)} />
         <Row label="Environment" value={project.auth_type || 'Default'} />
-        <Row label="Total Runs" value={<span className="font-bold text-white">{actualTotalRuns}</span>} />
+        <Row label="Total Runs" value={<span className="font-bold text-foreground">{actualTotalRuns}</span>} />
         {lastRunAt && <Row label="Last Run" value={formatDateTime(lastRunAt)} />}
-        <div className="border-t border-zinc-800 pt-3" />
+        <div className="border-t border-border pt-3" />
         <Row
           label="Success Rate"
           value={
@@ -76,8 +76,8 @@ export function ProjectDetails({
 function Row({ label, value }: { label: string; value: string | React.ReactNode }) {
   return (
     <div className="flex justify-between items-center text-xs">
-      <span className="text-zinc-400">{label}</span>
-      <span className="font-medium text-zinc-200 truncate ml-2">{value}</span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground truncate ml-2">{value}</span>
     </div>
   );
 }

@@ -59,7 +59,7 @@ export function BrowserActivity({ runId }: { runId: string }) {
   };
 
   const statusColor: Record<string, string> = {
-    idle:       'text-zinc-500',
+    idle:       'text-muted-foreground',
     launching:  'text-blue-400',
     navigating: 'text-blue-400',
     capturing:  'text-amber-400',
@@ -70,7 +70,7 @@ export function BrowserActivity({ runId }: { runId: string }) {
     <div className="space-y-4">
       <div className={cn(
         'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium',
-        browser.status === 'idle'       && 'border-zinc-800 bg-zinc-900 text-zinc-500',
+        browser.status === 'idle'       && 'border-border bg-muted text-muted-foreground',
         browser.status === 'launching'  && 'border-blue-500/40 bg-blue-500/10 text-blue-400',
         browser.status === 'navigating' && 'border-blue-500/40 bg-blue-500/10 text-blue-400',
         browser.status === 'capturing'  && 'border-amber-400/40 bg-amber-400/10 text-amber-400',
@@ -78,7 +78,7 @@ export function BrowserActivity({ runId }: { runId: string }) {
       )}>
         <Globe className={cn('h-4 w-4', statusColor[browser.status])} />
         {statusLabel[browser.status]}
-        {elapsed > 0 && <span className="ml-auto text-xs text-zinc-500">{(elapsed / 1000).toFixed(1)}s</span>}
+        {elapsed > 0 && <span className="ml-auto text-xs text-muted-foreground">{(elapsed / 1000).toFixed(1)}s</span>}
         {(browser.status === 'navigating' || browser.status === 'launching') && (
           <span className="flex gap-0.5">{[0,1,2].map(i => <span key={i} className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-bounce" style={{animationDelay:`${i*0.15}s`}} />)}</span>
         )}
@@ -86,19 +86,19 @@ export function BrowserActivity({ runId }: { runId: string }) {
 
       {browser.currentUrl && (
         <div className="space-y-1">
-          <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Current URL</p>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800">
-            <ArrowRight className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
-            <span className="text-xs font-mono text-zinc-200 truncate max-w-[300px]">{browser.currentUrl}</span>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Current URL</p>
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="text-xs font-mono text-foreground truncate max-w-[300px]">{browser.currentUrl}</span>
             <div className="flex items-center gap-1 ml-auto shrink-0">
               {browser.statusCode && (
                 <span className={cn('text-[10px] font-mono px-1.5 py-0.5 rounded', browser.statusCode < 300 ? 'bg-emerald-500/20 text-emerald-400' : browser.statusCode < 400 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400')}>{browser.statusCode}</span>
               )}
-              {browser.responseTime && <span className="text-[10px] text-zinc-500 font-mono">{browser.responseTime}ms</span>}
-              {browser.depth !== undefined && <span className="text-[10px] text-zinc-500">D:{browser.depth}</span>}
+              {browser.responseTime && <span className="text-[10px] text-muted-foreground font-mono">{browser.responseTime}ms</span>}
+              {browser.depth !== undefined && <span className="text-[10px] text-muted-foreground">D:{browser.depth}</span>}
             </div>
           </div>
-          {browser.currentTitle && <p className="text-xs text-zinc-400 px-1 truncate">{browser.currentTitle}</p>}
+          {browser.currentTitle && <p className="text-xs text-muted-foreground px-1 truncate">{browser.currentTitle}</p>}
         </div>
       )}
 
@@ -109,9 +109,9 @@ export function BrowserActivity({ runId }: { runId: string }) {
           { label: 'Forms', value: stats.formsFound, color: 'text-amber-400' },
           { label: 'Queue', value: browser.queueSize, color: 'text-sky-400' },
         ].map(s => (
-          <div key={s.label} className="px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800 text-center">
+          <div key={s.label} className="px-3 py-2 rounded-lg bg-muted border border-border text-center">
             <p className={cn('text-xl font-bold tabular-nums', s.color)}>{s.value}</p>
-            <p className="text-[10px] text-zinc-500">{s.label}</p>
+            <p className="text-[10px] text-muted-foreground">{s.label}</p>
           </div>
         ))}
       </div>
@@ -139,13 +139,13 @@ export function CrawlStats() {
   return (
     <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
       {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-2 px-2 py-2 rounded-lg border border-zinc-800 bg-zinc-900/50">
+        <div key={item.label} className="flex items-center gap-2 px-2 py-2 rounded-lg border border-border bg-muted/50">
           <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded', item.bg)}>
             <item.icon className={cn('h-3.5 w-3.5', item.color)} />
           </div>
           <div>
             <p className={cn('text-base font-bold tabular-nums leading-none', item.color)}>{item.value}</p>
-            <p className="text-[9px] text-zinc-500">{item.label}</p>
+            <p className="text-[9px] text-muted-foreground">{item.label}</p>
           </div>
         </div>
       ))}
@@ -163,10 +163,10 @@ function ScreenshotCard({ shot, runId, onClick }: { shot: Screenshot; runId: str
   return (
     <button
       onClick={onClick}
-      className="group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-zinc-600 transition-all duration-200 hover:shadow-lg hover:shadow-black/40 animate-fade-in text-left"
+      className="group relative overflow-hidden rounded-xl border border-border bg-muted hover:border-input transition-all duration-200 hover:shadow-lg hover:shadow-black/40 animate-fade-in text-left"
     >
       {/* Thumbnail */}
-      <div className="aspect-video relative overflow-hidden bg-zinc-950">
+      <div className="aspect-video relative overflow-hidden bg-muted">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imgUrl}
@@ -184,10 +184,10 @@ function ScreenshotCard({ shot, runId, onClick }: { shot: Screenshot; runId: str
       {/* Info */}
       <div className="p-2.5 space-y-1">
         {shot.title && (
-          <p className="text-xs font-medium text-zinc-200 truncate">{shot.title}</p>
+          <p className="text-xs font-medium text-foreground truncate">{shot.title}</p>
         )}
-        <p className="text-[10px] text-zinc-500 truncate font-mono">{shot.url}</p>
-        <p className="text-[10px] text-zinc-600">
+        <p className="text-[10px] text-muted-foreground truncate font-mono">{shot.url}</p>
+        <p className="text-[10px] text-muted-foreground">
           {new Date(shot.timestamp).toLocaleTimeString()}
         </p>
       </div>
@@ -205,15 +205,15 @@ function Lightbox({ shot, runId, onClose }: { shot: Screenshot; runId: string; o
       <div className="relative max-w-5xl w-full" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
-          className="absolute -top-10 right-0 text-zinc-400 hover:text-white transition-colors"
+          className="absolute -top-10 right-0 text-muted-foreground hover:text-white transition-colors"
         >
           <X className="h-6 w-6" />
         </button>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imgUrl} alt={shot.title ?? shot.url} className="w-full rounded-xl border border-zinc-700" />
+        <img src={imgUrl} alt={shot.title ?? shot.url} className="w-full rounded-xl border border-input" />
         <div className="mt-3 text-center space-y-1">
-          {shot.title && <p className="text-sm font-medium text-zinc-200">{shot.title}</p>}
-          <p className="text-xs text-zinc-500 font-mono">{shot.url}</p>
+          {shot.title && <p className="text-sm font-medium text-foreground">{shot.title}</p>}
+          <p className="text-xs text-muted-foreground font-mono">{shot.url}</p>
         </div>
       </div>
     </div>
@@ -300,27 +300,27 @@ export function LiveBrowserPreview({ runId }: { runId: string }) {
   }, [runId]);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 overflow-hidden">
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
       {/* Browser chrome */}
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-zinc-900 border-b border-zinc-800">
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-muted border-b border-border">
         <div className="flex gap-1.5">
           <div className="h-3 w-3 rounded-full bg-red-500/80" />
           <div className="h-3 w-3 rounded-full bg-amber-500/80" />
           <div className="h-3 w-3 rounded-full bg-emerald-500/80" />
         </div>
-        <div className="flex-1 flex items-center gap-2 px-3 py-1 rounded-md bg-zinc-950 border border-zinc-800 min-w-0">
-          <Globe className="h-3 w-3 text-zinc-500 shrink-0" />
-          <span className="text-xs text-zinc-400 truncate font-mono">{displayFrame?.url || browser.currentUrl || 'Waiting...'}</span>
+        <div className="flex-1 flex items-center gap-2 px-3 py-1 rounded-md bg-muted border border-border min-w-0">
+          <Globe className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground truncate font-mono">{displayFrame?.url || browser.currentUrl || 'Waiting...'}</span>
           {browser.statusCode && (
             <span className={cn('ml-auto text-[10px] font-mono px-1 py-0.5 rounded shrink-0', browser.statusCode < 300 ? 'bg-emerald-500/20 text-emerald-400' : browser.statusCode < 400 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400')}>{browser.statusCode}</span>
           )}
         </div>
         {displayFrame?.title && (
-          <span className="text-[10px] text-zinc-500 truncate max-w-[160px] hidden sm:block">{displayFrame.title}</span>
+          <span className="text-[10px] text-muted-foreground truncate max-w-[160px] hidden sm:block">{displayFrame.title}</span>
         )}
         <button
           onClick={() => setFitMode(m => m === 'contain' ? 'full' : 'contain')}
-          className="ml-2 p-1.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="ml-2 p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           title={fitMode === 'contain' ? 'Show full page' : 'Fit to viewport'}
         >
           {fitMode === 'contain' ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
@@ -338,7 +338,7 @@ export function LiveBrowserPreview({ runId }: { runId: string }) {
 
       {/* Viewport with cursor overlay */}
       <div ref={viewportRef} className={cn(
-        'relative bg-zinc-900 flex items-start justify-center',
+        'relative bg-muted flex items-start justify-center',
         fitMode === 'contain' ? 'aspect-video overflow-hidden' : 'min-h-[420px] max-h-[80vh] overflow-y-auto',
       )}>
         {imgUrl ? (
@@ -353,12 +353,12 @@ export function LiveBrowserPreview({ runId }: { runId: string }) {
             )}
           />
         ) : isLoading ? (
-          <div className="flex flex-col items-center gap-3 text-zinc-600">
+          <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <Loader2 className="h-8 w-8 animate-spin text-blue-400" />
             <p className="text-xs">{actionLabel || 'Loading...'}</p>
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-3 text-zinc-600">
+          <div className="flex flex-col items-center gap-3 text-muted-foreground">
             <Monitor className="h-10 w-10" />
             <p className="text-xs">Waiting for browser to start...</p>
           </div>
@@ -442,7 +442,7 @@ export function LiveBrowserPreview({ runId }: { runId: string }) {
       </div>
 
       {/* Action + Stats bar */}
-      <div className="flex items-center gap-4 px-4 py-2 bg-zinc-900/50 border-t border-zinc-800 text-[10px] text-zinc-500">
+      <div className="flex items-center gap-4 px-4 py-2 bg-muted/50 border-t border-border text-[10px] text-muted-foreground">
         {actionLabel ? (
           <span className={cn(
             'flex items-center gap-1.5',
@@ -454,11 +454,11 @@ export function LiveBrowserPreview({ runId }: { runId: string }) {
             {actionLabel}
           </span>
         ) : (
-          <span className="text-zinc-600">Idle</span>
+          <span className="text-muted-foreground">Idle</span>
         )}
-        <span className="ml-auto">Pages: <span className="text-zinc-300 font-mono">{browser.pagesVisited}</span></span>
-        <span>Queue: <span className="text-zinc-300 font-mono">{browser.queueSize}</span></span>
-        {displayFrame?.timestamp && <span className="text-zinc-600">{new Date(displayFrame.timestamp).toLocaleTimeString()}</span>}
+        <span className="ml-auto">Pages: <span className="text-foreground font-mono">{browser.pagesVisited}</span></span>
+        <span>Queue: <span className="text-foreground font-mono">{browser.queueSize}</span></span>
+        {displayFrame?.timestamp && <span className="text-muted-foreground">{new Date(displayFrame.timestamp).toLocaleTimeString()}</span>}
       </div>
     </div>
   );
@@ -471,7 +471,7 @@ export function ScreenshotGallery({ runId }: { runId: string }) {
 
   if (screenshots.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-3 text-zinc-600">
+      <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
         <Camera className="h-10 w-10" />
         <p className="text-sm">Screenshots will appear here as pages are crawled</p>
       </div>

@@ -157,6 +157,7 @@ async def create_run(
             request = CreateRunRequest(
                 target_application={"base_url": str(project.application_url)},
                 scope={"max_pages": 50, "max_depth": 5},
+                authentication=(body.get("authentication") if isinstance(body.get("authentication"), dict) else {}),
             )
         else:
             request = CreateRunRequest(**body)
@@ -165,6 +166,18 @@ async def create_run(
         from app.services.prompt_builder import get_prompt_parser, get_credential_store
         parser = get_prompt_parser()
         parsed_intent, auth_context = parser.parse(raw_prompt)
+
+        # Structured `authentication` payload takes priority over anything
+        # parsed from the prompt text. This is the reliable SSO entry point:
+        # a login URL can be supplied even without form credentials.
+        _auth_payload = getattr(request, "authentication", None)
+        if _auth_payload is not None:
+            _login_url = getattr(_auth_payload, "login_url", None)
+            _strategy = getattr(_auth_payload, "login_strategy", None)
+            if _login_url:
+                auth_context.login_url = str(_login_url)
+            if _strategy and _strategy != "none":
+                auth_context.auth_strategy = _strategy
 
         # --- Phase 1: enrich intent with the Hybrid Intent Parser (LLM) when enabled ---
         from app.agent.config import get_agent_config as _get_agent_config
@@ -205,7 +218,7 @@ async def create_run(
         ws_path = str(context.workspace_root)
 
         # Persist encrypted credentials to workspace (never to logs)
-        if auth_context.is_populated():
+        if auth_context.has_auth_config():
             cred_store = get_credential_store()
             cred_store.save(ws_path, auth_context)
 

@@ -92,19 +92,19 @@ function getStatusConfig(status: StageStatus): StatusConfig {
       return {
         icon: SkipForward,
         ring: '',
-        bg: 'bg-zinc-800 border-zinc-700',
-        iconColor: 'text-zinc-500',
-        labelColor: 'text-zinc-500',
-        dot: 'bg-zinc-600',
+        bg: 'bg-muted border-input',
+        iconColor: 'text-muted-foreground',
+        labelColor: 'text-muted-foreground',
+        dot: 'bg-muted-foreground',
       };
     default: // pending
       return {
         icon: Circle,
         ring: '',
-        bg: 'bg-zinc-900 border-zinc-700',
-        iconColor: 'text-zinc-600',
-        labelColor: 'text-zinc-500',
-        dot: 'bg-zinc-700',
+        bg: 'bg-muted border-input',
+        iconColor: 'text-muted-foreground',
+        labelColor: 'text-muted-foreground',
+        dot: 'bg-secondary',
       };
   }
 }
@@ -157,7 +157,7 @@ function StageNode({ stage, isLast }: { stage: PipelineStage; isLast: boolean })
         </span>
 
         {/* Status text */}
-        <span className="text-[9px] text-zinc-600 capitalize">
+        <span className="text-[9px] text-muted-foreground capitalize">
           {stage.status.replace('_', ' ')}
         </span>
       </div>
@@ -171,7 +171,7 @@ function StageNode({ stage, isLast }: { stage: PipelineStage; isLast: boolean })
               ? 'bg-emerald-500/60'
               : stage.status === 'running' || stage.status === 'waiting_for_user'
               ? 'bg-blue-500/40'
-              : 'bg-zinc-800'
+              : 'bg-muted'
           )}
         />
       )}
@@ -198,7 +198,7 @@ export function PipelineStages() {
               overall === 'completed'        && 'bg-emerald-500',
               overall === 'failed'           && 'bg-red-500',
               overall === 'paused'           && 'bg-amber-400 animate-pulse',
-              overall === 'idle'             && 'bg-zinc-600',
+              overall === 'idle'             && 'bg-muted-foreground',
             )}
           />
           <span className="text-sm font-medium text-foreground/80">
@@ -209,13 +209,13 @@ export function PipelineStages() {
             {overall === 'idle'      && 'Workflow Idle'}
           </span>
         </div>
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-muted-foreground">
           {completedCount}/{stages.length} stages · {progress}%
         </span>
       </div>
 
       {/* Progress bar */}
-      <div className="h-1 rounded-full bg-zinc-800 overflow-hidden">
+      <div className="h-1 rounded-full bg-muted overflow-hidden">
         <div
           className={cn(
             'h-full rounded-full transition-all duration-700',

@@ -79,6 +79,23 @@ class EventType:
     GOAL_CRITERION_MET         = "goal_criterion_met"
     CRAWL_PHASE_CHANGED        = "crawl_phase_changed"
 
+    # Authentication — generic structured lifecycle (no secrets in data)
+    AUTH_STARTED               = "auth_started"
+    AUTH_URL_DISCOVERED        = "auth_url_discovered"
+    AUTH_FORM_DETECTED         = "auth_form_detected"
+    AUTH_SUBMITTED             = "auth_submitted"
+    AUTH_REDIRECT_STARTED      = "auth_redirect_started"
+    AUTH_REDIRECT_COMPLETED    = "auth_redirect_completed"
+    OAUTH_DETECTED             = "oauth_detected"
+    MFA_REQUIRED               = "mfa_required"
+    AUTH_VERIFICATION_STARTED  = "auth_verification_started"
+    AUTHENTICATED              = "authenticated"
+    AUTHENTICATION_FAILED      = "authentication_failed"
+    AUTHENTICATION_TIMEOUT     = "authentication_timeout"
+    AUTHENTICATION_UNKNOWN     = "authentication_unknown"
+    AUTH_STRATEGY_UNSUPPORTED  = "auth_strategy_unsupported"
+    AUTH_URL_NOT_FOUND         = "auth_url_not_found"
+
     # Inventory
     INVENTORY_STARTED       = "inventory_started"
     INVENTORY_GENERATED     = "inventory_generated"
