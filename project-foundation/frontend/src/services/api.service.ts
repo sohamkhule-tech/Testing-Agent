@@ -1,4 +1,4 @@
-import { apiClient } from '@/lib/api-client';
+import { apiClient, API_BASE_URL } from '@/lib/api-client';
 import { 
   Project, 
   CreateProjectRequest,
@@ -158,6 +158,24 @@ export const runsService = {
   // Generated code
   getGeneratedFiles: async (id: string): Promise<any> => {
     return apiClient.get<any>(`/api/v1/runs/${id}/generated-files`);
+  },
+
+  // Download the COMPLETE generated Playwright project as a ZIP archive.
+  downloadGeneratedCode: async (id: string): Promise<Blob> => {
+    const response = await fetch(
+      `${API_BASE_URL}/api/v1/runs/${id}/generated-code/download`
+    );
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body && typeof body.detail === 'string') detail = body.detail;
+      } catch {
+        // Non-JSON error body — keep the HTTP fallback message.
+      }
+      throw new Error(detail);
+    }
+    return response.blob();
   },
 };
 

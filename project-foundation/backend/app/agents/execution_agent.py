@@ -43,7 +43,7 @@ class ExecutionAgent(IAgent, LoggerMixin):
         self.logger.info("execution_agent_started", run_id=run_id, execution_id=execution_id)
 
         try:
-            project_path = Path(input_data["project_path"])
+            project_path = Path(input_data["project_path"]).resolve()
             config = input_data.get("config")
             skip_install = input_data.get("skip_install", False)
 
@@ -124,11 +124,23 @@ class ExecutionAgent(IAgent, LoggerMixin):
 
             self.failure_analyzer.generate_failure_report(failure_batch, artifacts_path)
 
-            execution_summary_status = (
-                ExecutionStatus.COMPLETED
-                if metrics.tests_failed == 0
-                else ExecutionStatus.COMPLETED_WITH_FAILURES
-            )
+            # Determine execution status based on actual execution results
+            # CRITICAL: Infrastructure failures should mark the execution as FAILED, not COMPLETED
+            classification = execution_result.get("classification", "test_failures")
+            return_code = execution_result.get("return_code", 0)
+            
+            if classification == "infrastructure_error" or return_code < 0:
+                # Playwright failed to start or execute properly
+                execution_summary_status = ExecutionStatus.FAILED
+            elif metrics.total_tests == 0:
+                # No tests were executed (even if return code was 0)
+                execution_summary_status = ExecutionStatus.FAILED
+            elif metrics.tests_failed == 0:
+                # Tests ran and all passed
+                execution_summary_status = ExecutionStatus.COMPLETED
+            else:
+                # Tests ran but some failed
+                execution_summary_status = ExecutionStatus.COMPLETED_WITH_FAILURES
 
             execution_summary = ExecutionSummary(
                 execution_id=execution_id,

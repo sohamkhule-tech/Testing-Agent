@@ -10,6 +10,7 @@ import {
   CurrentActivityPanel,
   LiveMetricsDashboard,
 } from '@/components/run-monitor/code-gen-status-cards';
+import { DownloadGeneratedCodeButton } from '@/components/run-monitor/download-generated-code-button';
 import {
   Code2,
   FileCode,
@@ -154,12 +155,15 @@ export function CodeGenWorkspace() {
               : 'Generating Playwright test automation project...'}
           </p>
         </div>
-        <div className="text-right">
-          <div className="text-xs font-mono text-muted-foreground flex items-center justify-end gap-1">
-            <Clock className="h-3 w-3" />
-            {formatDuration(elapsedMs)}
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-xs font-mono text-muted-foreground flex items-center justify-end gap-1">
+              <Clock className="h-3 w-3" />
+              {formatDuration(elapsedMs)}
+            </div>
+            <div className="text-[10px] text-muted-foreground">elapsed</div>
           </div>
-          <div className="text-[10px] text-muted-foreground">elapsed</div>
+          <DownloadGeneratedCodeButton runId={runId ?? ''} ready={isComplete} />
         </div>
       </div>
 

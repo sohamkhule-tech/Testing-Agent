@@ -427,7 +427,7 @@ export interface CodeGenerationActivity {
 export interface TestResult {
   id: string;
   name: string;
-  status: 'passed' | 'failed' | 'skipped';
+  status: 'passed' | 'failed' | 'skipped' | 'not_executed';
   duration?: number;
   error?: string;
   timestamp: string;
@@ -438,7 +438,9 @@ export interface ExecutionStats {
   passed: number;
   failed: number;
   skipped: number;
-  passRate: number;
+  notExecuted: number;
+  executed: number;
+  passRate: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +511,7 @@ export interface WorkflowState {
   // Execution
   testResults: TestResult[];
   executionStats: ExecutionStats;
+  executionClassification: string | null;
   consoleLogs: string[];
 
   // Allure report
@@ -781,7 +784,8 @@ function makeInitialState(runId: string | null = null): Omit<WorkflowState, 'dis
     testFilesCount: 0,
     scenariosImplemented: 0,
     testResults: [],
-    executionStats: { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 },
+    executionStats: { total: 0, passed: 0, failed: 0, skipped: 0, notExecuted: 0, executed: 0, passRate: null },
+    executionClassification: null,
     consoleLogs: [],
     reportStatus: 'idle',
     reportPath: null,
@@ -1079,7 +1083,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             const exTests: TestResult[] = (ex.tests || []).map((t: any, i: number) => ({
               id: t.id || `test-${i}`,
               name: t.name || `Test ${i + 1}`,
-              status: (t.status === 'passed' || t.status === 'failed' || t.status === 'skipped') ? t.status : 'failed',
+              // CRITICAL: Preserve 'not_executed' status from backend - don't convert to 'failed'
+              status: (t.status === 'passed' || t.status === 'failed' || t.status === 'skipped' || t.status === 'not_executed') 
+                ? t.status 
+                : 'not_executed',
               duration: typeof t.duration === 'number' ? t.duration : undefined,
               error: typeof t.error === 'string' ? t.error : undefined,
               timestamp: t.timestamp || new Date().toISOString(),
@@ -1091,7 +1098,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               passed: exSum.passed || exTests.filter((t: TestResult) => t.status === 'passed').length,
               failed: exSum.failed || exTests.filter((t: TestResult) => t.status === 'failed').length,
               skipped: exSum.skipped || exTests.filter((t: TestResult) => t.status === 'skipped').length,
-              passRate: exSum.pass_rate || 0,
+              notExecuted: exSum.not_executed || exTests.filter((t: TestResult) => t.status === 'not_executed').length,
+              executed: exSum.executed || (exSum.passed || 0) + (exSum.failed || 0) + (exSum.skipped || 0),
+              passRate: exSum.pass_rate !== undefined ? exSum.pass_rate : null,
             };
 
             if (ex.execution_complete || exTests.length > 0) {
@@ -1099,6 +1108,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               set((s) => ({
                 testResults: exTests,
                 executionStats: exStats,
+                executionClassification: ex.classification ?? null,
                 stages: s.stages.map((st) =>
                   st.id === 'execution'
                     ? { ...st, status: isAllFailed ? ('failed' as const) : ('completed' as const) }
@@ -1821,9 +1831,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             duration: data.duration as number, timestamp: event.timestamp,
           };
           testResults = [...testResults, r];
+          const newPassed = executionStats.passed + 1;
+          const newExecuted = executionStats.executed + 1;
           executionStats = {
-            ...executionStats, total: executionStats.total + 1, passed: executionStats.passed + 1,
-            passRate: ((executionStats.passed + 1) / (executionStats.total + 1)) * 100,
+            ...executionStats, 
+            total: executionStats.total + 1, 
+            passed: newPassed,
+            executed: newExecuted,
+            passRate: (newPassed / newExecuted) * 100,
           };
           break;
         }
@@ -1834,9 +1849,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             duration: data.duration as number, error: data.error as string, timestamp: event.timestamp,
           };
           testResults = [...testResults, r];
+          const newFailed = executionStats.failed + 1;
+          const newExecuted = executionStats.executed + 1;
           executionStats = {
-            ...executionStats, total: executionStats.total + 1, failed: executionStats.failed + 1,
-            passRate: (executionStats.passed / (executionStats.total + 1)) * 100,
+            ...executionStats, 
+            total: executionStats.total + 1, 
+            failed: newFailed,
+            executed: newExecuted,
+            passRate: (executionStats.passed / newExecuted) * 100,
           };
           break;
         }
@@ -1846,9 +1866,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             id: event.event_id, name: data.name as string, status: 'skipped', timestamp: event.timestamp,
           };
           testResults = [...testResults, r];
+          const newSkipped = executionStats.skipped + 1;
+          const newExecuted = executionStats.executed + 1;
           executionStats = {
-            ...executionStats, total: executionStats.total + 1, skipped: executionStats.skipped + 1,
-            passRate: (executionStats.passed / (executionStats.total + 1)) * 100,
+            ...executionStats, 
+            total: executionStats.total + 1, 
+            skipped: newSkipped,
+            executed: newExecuted,
+            passRate: (executionStats.passed / newExecuted) * 100,
           };
           break;
         }

@@ -10,6 +10,7 @@ All existing ``/api/v1/runs/*`` endpoints remain fully backward compatible.
 """
 
 import io
+import re
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -528,50 +529,69 @@ def _parse_test_results_from_folders(test_results_dir: Path, pw_dir: Path | None
         try:
             data = _load_json(results_json)
             if data and isinstance(data, dict):
-                for suite in data.get("suites", []):
-                    for spec in suite.get("specs", []):
-                        for test in spec.get("tests", []):
-                            results = test.get("results", [])
-                            status = "skipped"
-                            duration_ms = 0
-                            error_msg = None
-                            if results:
-                                last = results[-1]
-                                s = last.get("status", "skipped")
-                                status = {"passed": "passed", "failed": "failed", "timedOut": "failed",
-                                          "skipped": "skipped", "interrupted": "failed"}.get(s, "skipped")
-                                duration_ms = sum(r.get("duration", 0) for r in results)
-                                if status == "failed":
-                                    err = last.get("error", {})
-                                    error_msg = err.get("message") if isinstance(err, dict) else None
-                            tests.append({
-                                "id": f"{suite.get('file','')}-{test.get('title','')}-{len(tests)}",
-                                "name": test.get("title", "Unknown"),
-                                "file": spec.get("file", suite.get("file", "")),
-                                "status": status,
-                                "duration": duration_ms,
-                                "error": error_msg,
-                                "browser": test.get("projectName"),
-                                "timestamp": "",
-                            })
+                status_map = {
+                    "passed": "passed", "failed": "failed", "timedOut": "failed",
+                    "skipped": "skipped", "interrupted": "failed",
+                }
+
+                def _walk_suites(suites: list) -> None:
+                    # Playwright JSON nests specs under describe-blocks inside file suites.
+                    # Top-level file suite has specs=[] and suites=[describe_block].
+                    # Must recurse into suites to find actual specs.
+                    for suite in suites or []:
+                        for spec in suite.get("specs", []):
+                            for test in spec.get("tests", []):
+                                results_list = test.get("results", [])
+                                status = "skipped"
+                                duration_ms = 0
+                                error_msg = None
+                                if results_list:
+                                    last = results_list[-1]
+                                    status = status_map.get(last.get("status", "skipped"), "skipped")
+                                    duration_ms = sum(r.get("duration", 0) for r in results_list)
+                                    if status == "failed":
+                                        err = last.get("error", {})
+                                        error_msg = err.get("message") if isinstance(err, dict) else None
+                                tests.append({
+                                    "id": f"{suite.get('file', '')}-{spec.get('title', '')}-{len(tests)}",
+                                    "name": spec.get("title", "Unknown"),
+                                    "file": spec.get("file") or suite.get("file", ""),
+                                    "status": status,
+                                    "duration": duration_ms,
+                                    "error": error_msg,
+                                    "browser": test.get("projectName"),
+                                    "timestamp": "",
+                                })
+                        _walk_suites(suite.get("suites", []))
+
+                _walk_suites(data.get("suites", []))
             if tests:
                 return tests
         except Exception:
             pass
 
-    # Fallback 2: parse test-results subfolders
+    # Fallback 2: parse test-results subfolders.
+    # Use os.scandir so DirEntry.is_dir() reads the cached WIN32_FIND_DATA
+    # attribute — this works even when the folder path exceeds MAX_PATH (260)
+    # because it avoids the GetFileAttributesW syscall that pathlib.Path.is_dir()
+    # would make on the long path.
+    import os as _os
     if test_results_dir.exists():
-        for folder in sorted(test_results_dir.iterdir()):
-            if folder.name.startswith(".") or not folder.is_dir():
+        try:
+            entries = sorted(_os.scandir(str(test_results_dir)), key=lambda e: e.name)
+        except OSError:
+            entries = []
+        for entry in entries:
+            if entry.name.startswith(".") or not entry.is_dir():
                 continue
-            parts = folder.name.split("-")
+            parts = entry.name.split("-")
             name_parts = parts[2:-2] if len(parts) > 4 else parts[1:]
-            name = " ".join(name_parts).replace("-", " ").strip() or folder.name
+            name = " ".join(name_parts).replace("-", " ").strip() or entry.name
 
             status = "failed"
             error_msg = None
 
-            stderr_file = folder / "error.txt"
+            stderr_file = test_results_dir / entry.name / "error.txt"
             if stderr_file.exists():
                 try:
                     error_msg = stderr_file.read_text(encoding="utf-8", errors="replace")[:200]
@@ -579,7 +599,7 @@ def _parse_test_results_from_folders(test_results_dir: Path, pw_dir: Path | None
                     pass
 
             tests.append({
-                "id": folder.name,
+                "id": entry.name,
                 "name": name,
                 "file": "",
                 "status": status,
@@ -593,6 +613,7 @@ def _parse_test_results_from_folders(test_results_dir: Path, pw_dir: Path | None
         return tests
 
     # Fallback 3: Parse generated spec files directly if test-results was empty/missing
+    # CRITICAL: These tests were NEVER EXECUTED - mark them as "not_executed", NEVER "passed"
     if pw_dir:
         tests_dir = pw_dir / "tests"
         if tests_dir.exists():
@@ -606,9 +627,9 @@ def _parse_test_results_from_folders(test_results_dir: Path, pw_dir: Path | None
                             "id": f"{spec.name}-{title}-{idx}",
                             "name": title,
                             "file": f"tests/{spec.name}",
-                            "status": "passed",
+                            "status": "not_executed",
                             "duration": None,
-                            "error": None,
+                            "error": "Test was generated but Playwright produced no execution results. The test was never actually run.",
                             "browser": "chromium",
                             "timestamp": "",
                         })
@@ -661,7 +682,12 @@ async def get_execution_results(
     passed = sum(1 for t in tests if t.get("status") == "passed")
     failed = sum(1 for t in tests if t.get("status") == "failed")
     skipped = sum(1 for t in tests if t.get("status") == "skipped")
-    pass_rate = (passed / total * 100) if total > 0 else 0.0
+    not_executed = sum(1 for t in tests if t.get("status") == "not_executed")
+    
+    # CRITICAL: Pass rate should only count EXECUTED tests (passed + failed + skipped)
+    # NOT tests that were never run (not_executed)
+    executed_tests = passed + failed + skipped
+    pass_rate = (passed / executed_tests * 100) if executed_tests > 0 else 0.0
 
     # If metrics has actual data and folder parsing is empty, prefer metrics
     if metrics and isinstance(metrics, dict) and metrics.get("total_tests", 0) > 0 and total == 0:
@@ -672,20 +698,39 @@ async def get_execution_results(
         pass_rate = metrics.get("pass_rate", 0.0)
 
     execution_complete = exec_meta is not None or summary is not None or total > 0
+    
+    # Determine execution status and classification
+    return_code = (exec_meta or {}).get("return_code")
+    classification = (exec_meta or {}).get("classification")
+
+    execution_status = "completed"
+    if classification == "playwright_timeout":
+        execution_status = "execution_timeout"
+    elif return_code is not None and return_code < 0:
+        execution_status = "infrastructure_failure"
+    elif summary:
+        execution_status = summary.get("status", "completed")
+    elif execution_complete:
+        execution_status = "completed"
+    else:
+        execution_status = "pending"
 
     return {
         "run_id": str(run_id),
-        "status": summary.get("status", "completed") if summary else ("completed" if execution_complete else "pending"),
+        "status": execution_status,
+        "classification": classification,
         "execution_complete": execution_complete,
         "duration_seconds": (summary or {}).get("duration_seconds") or (exec_meta or {}).get("duration_seconds"),
-        "return_code": (exec_meta or {}).get("return_code"),
+        "return_code": return_code,
         "tests": tests,
         "summary": {
             "total": total,
             "passed": passed,
             "failed": failed,
             "skipped": skipped,
-            "pass_rate": round(pass_rate, 1),
+            "not_executed": not_executed,
+            "executed": executed_tests,
+            "pass_rate": round(pass_rate, 1) if executed_tests > 0 else None,
         },
         "metrics": metrics,
         "execution_metadata": exec_meta,
@@ -1054,6 +1099,289 @@ async def get_generated_file_content_by_path(
         "content": content,
         "size_bytes": target.stat().st_size,
     }
+
+
+# ===================================================================
+# Generated Playwright Project — ZIP Download
+# ===================================================================
+
+# Directory names that must never ship in a generated-project archive. These
+# are build/dependency/runtime/execution outputs — not generated source.
+# Mirrors the ignore list used by ``GET /generated-files`` plus the Playwright
+# execution outputs (large, run-specific) that would bloat a code download.
+_GENERATED_CODE_EXCLUDED_DIRS = {
+    ".git",
+    ".next",
+    "node_modules",
+    "storage",
+    "artifacts",
+    "__pycache__",
+    ".venv",
+    ".pytest_cache",
+    ".cache",
+    "dist",
+    # Playwright execution outputs (not part of the generated source tree)
+    "test-results",
+    "playwright-report",
+    "allure-results",
+    "allure-report",
+    "traces",
+    "videos",
+    "screenshots",
+}
+
+# Named files that must never ship (platform-internal, not source).
+_GENERATED_CODE_EXCLUDED_NAMES = {
+    "code-generation-metadata.json",
+    "code-generation-ir.json",
+    "dependency-graph.json",
+}
+
+# Real environment files are always excluded. Only ``.env.example`` (with
+# placeholder values) is allowed to ship.
+_ENV_NAMES = {".env", ".env.local", ".env.development", ".env.production"}
+_ENV_EXAMPLE_NAME = ".env.example"
+
+
+def _is_real_env_file(name: str) -> bool:
+    """True when ``name`` is a real environment file (never shipped).
+
+    ``.env.example`` (and variants) are templates and are allowed.
+    """
+    if name in _ENV_NAMES:
+        return True
+    return name.startswith(".env.") and not name.startswith(_ENV_EXAMPLE_NAME)
+
+
+_SECRET_FILE_SUFFIXES = (".key", ".pem", ".pgp", ".p12", ".pfx", ".token")
+_SECRET_FILE_STEM_TOKENS = ("secret", "credential")
+
+
+def _is_secret_file_name(name: str) -> bool:
+    """True when the file ``name`` indicates it carries secrets."""
+    lowered = name.lower()
+    if lowered.endswith(_SECRET_FILE_SUFFIXES):
+        return True
+    stem = Path(name).stem.lower()
+    return any(token in stem for token in _SECRET_FILE_STEM_TOKENS)
+
+
+# High-signal secret content patterns (private keys, well-known provider
+# tokens). Deliberately strict — avoids flagging placeholder test values.
+_SECRET_CONTENT_PATTERNS = (
+    re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),                    # AWS access key id
+    re.compile(r"\bgh[puorst]_[A-Za-z0-9]{20,}"),       # GitHub tokens
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),        # Slack tokens
+    re.compile(r"AIza[0-9A-Za-z_\-]{35}"),              # Google API key
+    re.compile(r"\bsk-[A-Za-z0-9]{20,}"),               # OpenAI-style API key
+)
+
+
+def _contains_secret(content: bytes) -> bool:
+    """True when ``content`` embeds a high-signal secret (private key, token)."""
+    text = content.decode("utf-8", errors="ignore")
+    return any(pattern.search(text) for pattern in _SECRET_CONTENT_PATTERNS)
+
+
+def _env_example_placeholder(key: str) -> str:
+    """Return a safe placeholder for an environment ``key``."""
+    lowered = key.lower()
+    if any(
+        token in lowered
+        for token in ("password", "secret", "token", "key", "credential")
+    ):
+        return "<your-value>"
+    if lowered == "base_url":
+        return "http://localhost:3000"
+    return "<value>"
+
+
+def _build_env_example(env_path: Path) -> str | None:
+    """Synthesise a placeholder-only ``.env.example`` from a real ``.env``.
+
+    Keeps variable names/comments/documentation but replaces every value with
+    a placeholder. Never leaks credentials. Returns ``None`` when missing.
+    """
+    if not env_path.is_file():
+        return None
+    try:
+        raw = env_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    lines: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            lines.append(line)
+            continue
+        if "=" not in stripped:
+            lines.append(line)
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        lines.append(f"{key}={_env_example_placeholder(key)}")
+
+    if not lines:
+        return None
+    return "\n".join(lines).rstrip() + "\n"
+
+
+_GENERATED_CODE_ARCHIVE_ROOT = "generated-tests/playwright"
+
+
+def _build_generated_code_zip(project_dir: Path) -> bytes | None:
+    """Package a generated Playwright project into a sanitised ZIP archive.
+
+    Security guarantees:
+    * every entry is resolved and verified to live inside ``project_dir``
+      (path traversal / symlink escape is impossible);
+    * real ``.env`` files and secret-bearing files are never included;
+    * a placeholder ``.env.example`` is always shipped when the project
+      references environment variables.
+
+    Returns ZIP bytes, or ``None`` when nothing may be downloaded.
+    """
+    root_resolved = project_dir.resolve()
+    buffer = io.BytesIO()
+
+    env_example_path = project_dir / _ENV_EXAMPLE_NAME
+    has_env_example = env_example_path.is_file()
+    env_example_content = None if has_env_example else _build_env_example(project_dir / ".env")
+
+    added_files = 0
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for file_path in sorted(project_dir.rglob("*")):
+            if file_path.is_dir():
+                continue
+
+            name = file_path.name
+            if name == _ENV_EXAMPLE_NAME:
+                continue  # emitted separately below
+            if _is_real_env_file(name):
+                continue
+            if _is_secret_file_name(name):
+                continue
+            if name in _GENERATED_CODE_EXCLUDED_NAMES:
+                continue
+
+            try:
+                rel = file_path.relative_to(project_dir)
+            except ValueError:
+                continue
+            # Only evaluate the component sub-tree; ancestors (e.g. the run's
+            # workspace under ``storage/runs/*/artifacts``) are never compared.
+            if any(part in _GENERATED_CODE_EXCLUDED_DIRS for part in rel.parts):
+                continue
+
+            # Path-traversal / symlink-escape guard: the file must resolve to
+            # a real location inside the project root.
+            try:
+                file_path.resolve().relative_to(root_resolved)
+            except ValueError:
+                logger.warning(
+                    "generated_code_download_skipped_outside_path path=%s",
+                    file_path,
+                )
+                continue
+
+            try:
+                content = file_path.read_bytes()
+            except OSError:
+                logger.warning(
+                    "generated_code_download_unreadable path=%s",
+                    file_path,
+                )
+                continue
+
+            if content and _contains_secret(content):
+                logger.warning(
+                    "generated_code_download_skipped_secret_content path=%s",
+                    file_path,
+                )
+                continue
+
+            zf.writestr(
+                f"{_GENERATED_CODE_ARCHIVE_ROOT}/{rel.as_posix()}",
+                content,
+            )
+            added_files += 1
+
+        # Always ship a placeholder-only .env.example when the project relies
+        # on environment variables. Never the real .env.
+        if has_env_example:
+            try:
+                example_raw = env_example_path.read_bytes()
+            except OSError:
+                example_raw = b""
+            if example_raw and not _contains_secret(example_raw):
+                zf.writestr(f"{_GENERATED_CODE_ARCHIVE_ROOT}/{_ENV_EXAMPLE_NAME}", example_raw)
+                added_files += 1
+        elif env_example_content is not None:
+            zf.writestr(f"{_GENERATED_CODE_ARCHIVE_ROOT}/{_ENV_EXAMPLE_NAME}", env_example_content)
+            added_files += 1
+
+    if added_files == 0:
+        return None
+
+    return buffer.getvalue()
+
+
+@router.get(
+    "/{run_id}/generated-code/download",
+    summary="Download generated Playwright project",
+    description=(
+        "Packages the COMPLETE generated Playwright project for a run into a "
+        "downloadable ZIP archive. Secrets are scrubbed — real .env files and "
+        "credential files are never included; only a placeholder .env.example "
+        "ships with the archive."
+    ),
+    responses={
+        200: {
+            "description": "ZIP file stream",
+            "content": {"application/zip": {}},
+        },
+        404: {"description": "Run or generated project not found"},
+    },
+)
+async def download_generated_code(
+    run_id: UUID,
+    service: TriggerService = Depends(get_trigger_service),
+) -> StreamingResponse:
+    """Download the complete generated Playwright project as a ZIP archive.
+
+    The run ID is the only identifier accepted from the client. Files are read
+    exclusively from this run's ``artifacts/generated-tests/playwright``
+    directory — arbitrary paths (client-supplied or otherwise) are never used.
+    """
+    workspace = await _get_run_workspace(run_id, service)
+    project_dir = workspace / "artifacts" / "generated-tests" / "playwright"
+
+    if not project_dir.exists() or not project_dir.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Generated project not found for run: {run_id}. "
+                "Code generation may not have completed."
+            ),
+        )
+
+    archive_bytes = _build_generated_code_zip(project_dir)
+    if archive_bytes is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Generated project is not ready for download for run: {run_id}.",
+        )
+
+    filename = f"playwright-generated-code-{run_id}.zip"
+    return StreamingResponse(
+        io.BytesIO(archive_bytes),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
 
 
 # ===================================================================

@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,15 +14,70 @@ class ArtifactCollector(LoggerMixin):
     def __init__(self) -> None:
         super().__init__()
 
+    @staticmethod
+    def _to_extended_path(p: Path) -> str:
+        """Return a \\?\ prefixed absolute path on Windows to bypass MAX_PATH (260 chars).
+
+        Playwright writes hash-named attachments under playwright-report/data/.
+        The full path frequently exceeds 260 chars on deeply nested OneDrive/workspace
+        layouts, causing CreateFileW to return ERROR_PATH_NOT_FOUND (WinError 3) for
+        every individual file even though the parent directory is reachable.
+        The \\?\ prefix switches Windows to the 32 767-char limit.
+        """
+        if os.name != "nt":
+            return str(p)
+        resolved = str(p.resolve())
+        if resolved.startswith("\\\\?\\"):
+            return resolved
+        if resolved.startswith("\\\\"):  # UNC path
+            return "\\\\?\\UNC\\" + resolved[2:]
+        return "\\\\?\\" + resolved
+
+    @staticmethod
+    def _copy2_longpath(src: str, dst: str, **_: Any) -> None:
+        """shutil copy_function that prefixes both paths for Windows MAX_PATH bypass."""
+        if os.name == "nt":
+            def _ext(s: str) -> str:
+                if s.startswith("\\\\?\\"):
+                    return s
+                if s.startswith("\\\\"):
+                    return "\\\\?\\UNC\\" + s[2:]
+                return "\\\\?\\" + s
+            src = _ext(os.path.abspath(src))
+            dst = _ext(os.path.abspath(dst))
+        shutil.copy2(src, dst)
+
     def collect_artifacts(
         self,
         project_path: Path,
         output_path: Path
     ) -> ArtifactSummary:
+        project_path = project_path.resolve()
+        output_path = output_path.resolve()
+        playwright_report_src = project_path / "playwright-report"
+        playwright_report_data = playwright_report_src / "data"
+
+        # Count data files using extended path so MAX_PATH doesn't hide them
+        if playwright_report_data.exists():
+            try:
+                data_file_count = sum(
+                    1 for _ in os.scandir(self._to_extended_path(playwright_report_data))
+                )
+            except OSError:
+                data_file_count = -1
+        else:
+            data_file_count = 0
+
         self.logger.info(
             "collecting_artifacts",
-            project_path=str(project_path),
-            output_path=str(output_path)
+            run_dir=str(project_path.parent.parent),
+            playwright_workspace=str(project_path),
+            playwright_report_src=str(playwright_report_src),
+            playwright_report_src_exists=playwright_report_src.exists(),
+            playwright_report_src_is_dir=playwright_report_src.is_dir() if playwright_report_src.exists() else False,
+            playwright_report_data_files=data_file_count,
+            destination=str(output_path),
+            env_html_report=os.environ.get("PLAYWRIGHT_HTML_REPORT", "(not set)"),
         )
 
         output_path.mkdir(parents=True, exist_ok=True)
@@ -87,7 +143,7 @@ class ArtifactCollector(LoggerMixin):
                 sanitized_name = self._sanitize_filename(screenshot_file.name)
                 dest = screenshots_dir / sanitized_name
                 if dest.name not in seen_names:
-                    shutil.copy2(screenshot_file, dest)
+                    shutil.copy2(self._to_extended_path(screenshot_file), self._to_extended_path(dest))
                     collected.append(dest)
                     seen_names.add(dest.name)
 
@@ -96,7 +152,7 @@ class ArtifactCollector(LoggerMixin):
                 sanitized_name = self._sanitize_filename(sf.name)
                 dest = screenshots_dir / sanitized_name
                 if dest.name not in seen_names:
-                    shutil.copy2(sf, dest)
+                    shutil.copy2(self._to_extended_path(sf), self._to_extended_path(dest))
                     collected.append(dest)
                     seen_names.add(dest.name)
 
@@ -114,7 +170,7 @@ class ArtifactCollector(LoggerMixin):
             for video_file in test_results_dir.rglob("*.webm"):
                 sanitized_name = self._sanitize_filename(video_file.name)
                 dest = videos_dir / sanitized_name
-                shutil.copy2(video_file, dest)
+                shutil.copy2(self._to_extended_path(video_file), self._to_extended_path(dest))
                 collected.append(dest)
 
         return collected
@@ -131,7 +187,7 @@ class ArtifactCollector(LoggerMixin):
             for trace_file in test_results_dir.rglob("trace.zip"):
                 parent_name = self._sanitize_filename(trace_file.parent.name)
                 dest = traces_dir / f"{parent_name}-trace.zip"
-                shutil.copy2(trace_file, dest)
+                shutil.copy2(self._to_extended_path(trace_file), self._to_extended_path(dest))
                 collected.append(dest)
 
         return collected
@@ -148,7 +204,7 @@ class ArtifactCollector(LoggerMixin):
             for log_file in test_results_dir.rglob("*.log"):
                 sanitized_name = self._sanitize_filename(log_file.name)
                 dest = logs_dir / sanitized_name
-                shutil.copy2(log_file, dest)
+                shutil.copy2(self._to_extended_path(log_file), self._to_extended_path(dest))
                 collected.append(dest)
 
         return collected
@@ -159,25 +215,48 @@ class ArtifactCollector(LoggerMixin):
         reports_dir: Path
     ) -> None:
         playwright_report = project_path / "playwright-report"
-        if playwright_report.exists() and playwright_report.is_dir():
-            dest = reports_dir / "playwright-report"
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.copytree(playwright_report, dest)
-            self.logger.debug("playwright_html_report_copied", dest=str(dest))
+        dest = reports_dir / "playwright-report"
+
+        self.logger.info(
+            "playwright_report_copy_start",
+            src=str(playwright_report),
+            dst=str(dest),
+            src_exists=playwright_report.exists(),
+            src_is_dir=playwright_report.is_dir() if playwright_report.exists() else False,
+        )
+
+        if not playwright_report.exists() or not playwright_report.is_dir():
+            self.logger.warning(
+                "playwright_html_report_missing",
+                configured_path=str(playwright_report),
+                hint=(
+                    "Playwright HTML reporter did not create playwright-report/. "
+                    "Check that 'html' is in playwright.config.ts reporters and "
+                    "PLAYWRIGHT_HTML_REPORT env var matches this path."
+                ),
+            )
+            return
+
+        if dest.exists():
+            shutil.rmtree(self._to_extended_path(Path(dest)))
+
+        src_ext = self._to_extended_path(playwright_report)
+        dst_ext = self._to_extended_path(dest)
+        shutil.copytree(src_ext, dst_ext, copy_function=self._copy2_longpath)
+        self.logger.debug("playwright_html_report_copied", dest=str(dest))
 
     def _copy_json_report(self, project_path: Path, output_path: Path) -> None:
         results_file = project_path / "test-results" / "results.json"
         if results_file.exists():
             dest = output_path / "reports" / "results.json"
-            shutil.copy2(results_file, dest)
+            shutil.copy2(self._to_extended_path(results_file), self._to_extended_path(dest))
             self.logger.debug("json_report_copied", dest=str(dest))
 
     def _copy_junit_report(self, project_path: Path, output_path: Path) -> None:
         junit_file = project_path / "test-results" / "junit.xml"
         if junit_file.exists():
             dest = output_path / "reports" / "junit.xml"
-            shutil.copy2(junit_file, dest)
+            shutil.copy2(self._to_extended_path(junit_file), self._to_extended_path(dest))
             self.logger.debug("junit_report_copied", dest=str(dest))
 
     def _collect_execution_logs(
@@ -189,7 +268,7 @@ class ArtifactCollector(LoggerMixin):
             if log_file.parent != logs_dir:
                 sanitized_name = self._sanitize_filename(log_file.name)
                 dest = logs_dir / sanitized_name
-                shutil.copy2(log_file, dest)
+                shutil.copy2(self._to_extended_path(log_file), self._to_extended_path(dest))
 
     def _copy_metadata(self, project_path: Path, output_path: Path) -> None:
         for pattern in ["*.json", "*.yaml", "*.yml"]:
@@ -197,7 +276,7 @@ class ArtifactCollector(LoggerMixin):
                 if f.name == "package.json" or f.parent == output_path:
                     continue
                 dest = output_path / "reports" / f.name
-                shutil.copy2(f, dest)
+                shutil.copy2(self._to_extended_path(f), self._to_extended_path(dest))
 
     def _sanitize_filename(self, filename: str) -> str:
         invalid_chars = '<>:"/\\|?*'
@@ -207,9 +286,21 @@ class ArtifactCollector(LoggerMixin):
 
     def _calculate_directory_size(self, directory: Path) -> int:
         total_size = 0
-        for file_path in directory.rglob("*"):
-            if file_path.is_file():
-                total_size += file_path.stat().st_size
+        stack = [self._to_extended_path(directory)]
+        while stack:
+            current = stack.pop()
+            try:
+                with os.scandir(current) as it:
+                    for entry in it:
+                        if entry.is_file(follow_symlinks=False):
+                            try:
+                                total_size += entry.stat(follow_symlinks=False).st_size
+                            except OSError:
+                                pass
+                        elif entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+            except OSError:
+                pass
         return total_size
 
     def create_artifact_index(
@@ -282,6 +373,9 @@ class ArtifactCollector(LoggerMixin):
             "browser": execution_result.get("browser", "unknown"),
             "start_time": execution_result.get("start_time"),
             "end_time": execution_result.get("end_time"),
+            "classification": execution_result.get("classification"),
+            "stdout": execution_result.get("stdout", "")[:1000] if execution_result.get("stdout") else None,
+            "stderr": execution_result.get("stderr", "")[:1000] if execution_result.get("stderr") else None,
         }
 
         metadata_path = output_path / "execution-metadata.json"
@@ -302,7 +396,7 @@ class ArtifactCollector(LoggerMixin):
             for har_file in test_results_dir.rglob("*.har"):
                 sanitized_name = self._sanitize_filename(har_file.name)
                 dest = output_path / "logs" / sanitized_name
-                shutil.copy2(har_file, dest)
+                shutil.copy2(self._to_extended_path(har_file), self._to_extended_path(dest))
                 collected.append(dest)
 
         return collected

@@ -47,7 +47,7 @@ class FailureType(str, Enum):
 
 
 class ExecutionConfig(BaseModel):
-    browser: BrowserType | None = Field(default=None)
+    browser: BrowserType | None = Field(default=BrowserType.CHROMIUM)
     base_url: str | None = Field(default=None)
     headless: bool = Field(default=True)
     parallel_execution: bool = Field(default=True)

@@ -225,11 +225,15 @@ class AllureReportGenerator(LoggerMixin):
 
             raw_duration = test.get("duration_ms") or test.get("duration")
             duration_ms = int(raw_duration) if raw_duration else 0
-            # Default to a realistic ~1.5s (1500ms) if duration was 0 or unrecorded
-            effective_duration = duration_ms if duration_ms > 0 else 1500
+            # For real executions use duration; for not_executed tests use 0
+            effective_duration = duration_ms if duration_ms > 0 else 0
 
             status = str(test.get("status") or "skipped")
-            if status not in {"passed", "failed", "skipped", "broken"}:
+            # CRITICAL: "not_executed" means test was never run - convert to "skipped" for Allure
+            # NEVER use "passed" for tests that weren't executed
+            if status == "not_executed":
+                status = "skipped"
+            elif status not in {"passed", "failed", "skipped", "broken"}:
                 status = "skipped"
 
             result_uuid = str(uuid.uuid5(
@@ -259,11 +263,20 @@ class AllureReportGenerator(LoggerMixin):
                     "message": str(error_message),
                     "trace": str(error_stack or error_message),
                 }
+            elif test.get("status") == "not_executed":
+                # Provide clear reason why test was skipped
+                status_details = {
+                    "message": "Test was not executed",
+                    "trace": "This test was generated but Playwright failed to execute it. No test results were produced.",
+                }
 
+# For not_executed tests, don't fabricate successful Before/After hooks
+            hook_status = "passed" if test.get("status") not in {"not_executed", "skipped"} else "skipped"
+            
             steps = [
                 {
                     "name": "Before Hooks",
-                    "status": "passed",
+                    "status": hook_status,
                     "stage": "finished",
                     "start": before_start,
                     "stop": before_stop,
@@ -284,7 +297,7 @@ class AllureReportGenerator(LoggerMixin):
                 },
                 {
                     "name": "After Hooks",
-                    "status": "passed",
+                    "status": hook_status,
                     "stage": "finished",
                     "start": after_start,
                     "stop": after_stop,

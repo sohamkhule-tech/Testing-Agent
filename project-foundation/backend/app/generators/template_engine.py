@@ -326,7 +326,7 @@ export default defineConfig({{
     baseURL: process.env.BASE_URL || '{base_url}',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    video: 'off',
   }},
   projects: [
 """
@@ -556,6 +556,15 @@ export class {class_name} {{
             # Parse role format: "button:Login" or just "button"
             if ":" in value:
                 role, name = value.split(":", 1)
+                # alert/status roles carry LLM-generated names (e.g. "Error Message")
+                # that don't exist as accessible names on real pages. Match by role only
+                # and use a CSS fallback so the locator is resilient across frameworks.
+                if role in ("alert", "status"):
+                    return (
+                        f"this.page.getByRole('{role}')"
+                        f".or(this.page.locator('[role=\"{role}\"], [aria-live=\"assertive\"], [aria-live=\"polite\"]'))"
+                        f".first()"
+                    )
                 # For buttons, try exact name first, then partial (regex)
                 return (
                     f"this.page.getByRole('{role}', {{ name: '{name}' }})"
@@ -567,6 +576,13 @@ export class {class_name} {{
             # model provided one.
             element_name = (element.name or "").strip()
             if element_name and element_name.lower() != value.strip().lower():
+                # alert/status without a role:name split — same treatment
+                if value.strip() in ("alert", "status"):
+                    return (
+                        f"this.page.getByRole('{value}')"
+                        f".or(this.page.locator('[role=\"{value}\"], [aria-live=\"assertive\"], [aria-live=\"polite\"]'))"
+                        f".first()"
+                    )
                 return f"this.page.getByRole('{value}', {{ name: /{element_name}/i }})"
             return f"this.page.getByRole('{value}')"
 
@@ -576,19 +592,25 @@ export class {class_name} {{
             # → input[type] heuristic based on element id semantics.
             label_lower = value.lower()
 
-            # Determine input type hint from element id / label semantics
+            # Password fields: skip getByLabel — it matches both the <input type="password">
+            # AND any "Show password" toggle button whose aria-label contains "password".
+            # That causes a Playwright strict-mode violation on .fill() and .toBeVisible().
+            # Use the CSS input selector first, falling back to placeholder.
             if any(k in element_id for k in ("password", "pwd", "pass")):
-                type_fallback = "this.page.locator('input[type=\"password\"]')"
+                return (
+                    "this.page.locator('input[type=\"password\"]')"
+                    f".or(this.page.getByPlaceholder(/{label_lower}/i))"
+                )
             elif any(k in element_id for k in ("email", "username", "user", "login")):
                 type_fallback = "this.page.locator('input[type=\"text\"], input[type=\"email\"]').first()"
-            else:
-                type_fallback = None
-
-            expr = f"this.page.getByLabel(/{label_lower}/i)"
-            expr += f".or(this.page.getByPlaceholder(/{label_lower}/i))"
-            if type_fallback:
+                expr = f"this.page.getByLabel(/{label_lower}/i)"
+                expr += f".or(this.page.getByPlaceholder(/{label_lower}/i))"
                 expr += f".or({type_fallback})"
-            return expr
+                return expr
+            else:
+                expr = f"this.page.getByLabel(/{label_lower}/i)"
+                expr += f".or(this.page.getByPlaceholder(/{label_lower}/i))"
+                return expr
 
         elif strategy == LocatorStrategy.PLACEHOLDER:
             return f"this.page.getByPlaceholder('{value}')"

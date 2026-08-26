@@ -17,6 +17,7 @@ import {
   TrendingUp,
   AlertCircle,
   SkipForward,
+  AlertTriangle,
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -122,15 +123,24 @@ function TestRow({ result }: { result: TestResult }) {
       result.status === 'passed'  && 'border-emerald-500/20 bg-emerald-500/5',
       result.status === 'failed'  && 'border-red-500/25 bg-red-500/5',
       result.status === 'skipped' && 'border-border bg-muted/30',
+      result.status === 'not_executed' && 'border-amber-500/20 bg-amber-500/5',
     )}>
       {result.status === 'passed'  && <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />}
       {result.status === 'failed'  && <XCircle      className="h-4 w-4 text-red-400 shrink-0" />}
       {result.status === 'skipped' && <SkipForward  className="h-4 w-4 text-muted-foreground shrink-0" />}
+      {result.status === 'not_executed' && <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />}
 
       <span className="text-xs text-foreground flex-1 truncate font-medium">{result.name}</span>
 
+      {result.status === 'not_executed' && (
+        <span className="text-[10px] text-amber-400 shrink-0">Not Executed</span>
+      )}
+
       {result.error && (
-        <span className="text-[10px] text-red-400 truncate max-w-[180px] shrink-0">{result.error}</span>
+        <span className={cn(
+          "text-[10px] truncate max-w-[180px] shrink-0",
+          result.status === 'not_executed' ? 'text-amber-400' : 'text-red-400'
+        )}>{result.error}</span>
       )}
 
       {result.duration && (
@@ -143,8 +153,9 @@ function TestRow({ result }: { result: TestResult }) {
 }
 
 export function ExecutionMonitor() {
-  const results = useWorkflowStore((s) => s.testResults);
-  const stats   = useWorkflowStore((s) => s.executionStats);
+  const results        = useWorkflowStore((s) => s.testResults);
+  const stats          = useWorkflowStore((s) => s.executionStats);
+  const classification = useWorkflowStore((s) => s.executionClassification);
   const stages  = useWorkflowStore((s) => s.stages);
   const exStage = stages.find((s) => s.id === 'execution');
   const isActive= exStage?.status === 'running' || exStage?.status === 'completed' || results.length > 0;
@@ -158,6 +169,10 @@ export function ExecutionMonitor() {
     );
   }
 
+  const isTimeout = classification === 'playwright_timeout';
+  // Infrastructure failure = Playwright never started OR all tests not_executed (not a timeout)
+  const hasInfrastructureFailure = !isTimeout && stats.executed === 0 && stats.notExecuted > 0;
+
   // Show "completed but no results" state when stage done but 0 tests
   if (exStage?.status === 'completed' && results.length === 0) {
     return (
@@ -170,10 +185,46 @@ export function ExecutionMonitor() {
   }
 
 
-  const passRate = stats.total > 0 ? (stats.passed / stats.total) * 100 : 0;
+  const passRate = stats.executed > 0 ? ((stats.passed / stats.executed) * 100) : 0;
 
   return (
     <div className="space-y-5">
+      {/* Timeout banner — Playwright started, tests ran/attempted, but wall-clock limit hit */}
+      {isTimeout && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-orange-500/20 bg-orange-500/5">
+          <Clock className="h-5 w-5 text-orange-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-orange-400">Test Execution Timed Out</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Playwright execution exceeded the configured timeout.
+              {stats.total > 0 && (
+                <> {stats.total} test{stats.total !== 1 ? 's' : ''} attempted — {stats.passed} passed, {stats.failed} failed.</>
+              )}
+            </p>
+            <p className="text-xs text-orange-400 mt-2">
+              Total: {stats.total} • Passed: {stats.passed} • Failed: {stats.failed}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Infrastructure failure — Playwright never started, no tests ran */}
+      {hasInfrastructureFailure && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5">
+          <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-400">Test Execution Failed</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Tests were not executed. Playwright failed to start or run properly.
+              {stats.notExecuted > 0 && (
+                <> {stats.notExecuted} test{stats.notExecuted !== 1 ? 's were' : ' was'} generated but never executed.</>
+              )}
+            </p>
+            <p className="text-xs text-amber-400 mt-2">Executed: 0 • Passed: 0 • Failed: 0 • Pass Rate: N/A</p>
+          </div>
+        </div>
+      )}
+
       {/* Pass rate ring + stats */}
       <div className="grid grid-cols-4 gap-3">
         <div className="col-span-1 flex flex-col items-center justify-center p-4 rounded-xl bg-muted border border-border">
@@ -191,7 +242,7 @@ export function ExecutionMonitor() {
               />
             </svg>
             <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-foreground">
-              {Math.round(passRate)}%
+              {stats.executed > 0 ? Math.round(passRate) : 'N/A'}
             </span>
           </div>
           <p className="text-[10px] text-muted-foreground mt-1">Pass Rate</p>
@@ -202,7 +253,7 @@ export function ExecutionMonitor() {
             { label: 'Total',   value: stats.total,   color: 'text-foreground',   icon: TrendingUp },
             { label: 'Passed',  value: stats.passed,  color: 'text-emerald-400',icon: CheckCircle2 },
             { label: 'Failed',  value: stats.failed,  color: 'text-red-400',    icon: XCircle },
-            { label: 'Skipped', value: stats.skipped, color: 'text-muted-foreground',   icon: SkipForward },
+            { label: 'Not Executed', value: stats.notExecuted, color: 'text-amber-400', icon: AlertTriangle },
           ].map((s) => (
             <div key={s.label} className="flex items-center gap-2 p-2.5 rounded-lg bg-muted border border-border">
               <s.icon className={cn('h-3.5 w-3.5 shrink-0', s.color)} />
