@@ -125,12 +125,14 @@ class ExecutionAgent(IAgent, LoggerMixin):
             self.failure_analyzer.generate_failure_report(failure_batch, artifacts_path)
 
             # Determine execution status based on actual execution results
-            # CRITICAL: Infrastructure failures should mark the execution as FAILED, not COMPLETED
-            classification = execution_result.get("classification", "test_failures")
-            return_code = execution_result.get("return_code", 0)
-            
-            if classification == "infrastructure_error" or return_code < 0:
-                # Playwright failed to start or execute properly
+            # CRITICAL: Infrastructure failures must mark the execution as FAILED,
+            # not COMPLETED. Status is driven by the classification (root cause),
+            # never by a bare return code: a wall-clock kill that still produced
+            # complete results is a completed-with-failures run, not a timeout.
+            classification = execution_result.get("classification", "test_execution_completed_with_failures")
+
+            if classification in ("infrastructure_failure", "execution_timeout", "command_failure"):
+                # Playwright failed to start/complete or was killed with no usable results
                 execution_summary_status = ExecutionStatus.FAILED
             elif metrics.total_tests == 0:
                 # No tests were executed (even if return code was 0)
@@ -229,7 +231,7 @@ class ExecutionAgent(IAgent, LoggerMixin):
                 # Distinguish test failures vs process timeout vs command/env
                 # failures so the UI can show a meaningful reason.
                 "classification": execution_result.get(
-                    "classification", "test_failures"
+                    "classification", "test_execution_completed_with_failures"
                 ),
                 "failure_summary": failure_batch.model_dump() if failure_batch else None,
                 "retry_summary": retry_summary.model_dump() if retry_summary else None,

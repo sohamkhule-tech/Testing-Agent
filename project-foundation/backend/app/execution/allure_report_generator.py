@@ -14,6 +14,7 @@ Responsible for:
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -41,6 +42,29 @@ DEFAULT_CATEGORIES = [
         "matchedStatuses": ["skipped"],
     },
 ]
+
+# The synthetic fallback writer emits counter-named result files. The official
+# ``allure-playwright`` reporter names its result files after the test UUID, so
+# counter-named ``-result.json`` files can ALWAYS be attributed to us.
+_SYNTHETIC_RESULT_RE = re.compile(r"^\d+-result\.json$")
+
+
+def _is_synthetic_result_name(name: str) -> bool:
+    """True for a counter-named result file produced by our fallback writer."""
+    return bool(_SYNTHETIC_RESULT_RE.match(name))
+
+
+def _long_path(path: Path) -> Path:
+    """Return a path usable for open/read/write/unlink on Windows.
+
+    Run workspaces can exceed Windows MAX_PATH (260 chars). Python's
+    ``open``/``unlink`` fail with ``FileNotFoundError`` on such paths unless the
+    ``\\\\?\\`` prefix is used (enumeration via glob/listdir is unaffected).
+    """
+    raw = str(path.resolve())
+    if os.name == "nt" and not raw.startswith("\\\\?\\"):
+        raw = "\\\\?\\" + raw
+    return Path(raw)
 
 
 class AllureReportGenerator(LoggerMixin):
@@ -71,7 +95,9 @@ class AllureReportGenerator(LoggerMixin):
             fallback_test_results: Parsed Playwright tests used to synthesize
                 Allure result files when the reporter did not write any
             timeout: Max seconds to allow the CLI to run
-            force_rebuild: If True, delete existing result JSON files and re-synthesize
+            force_rebuild: Accepted for API compatibility. Real Playwright
+                results are NEVER deleted or replaced; regeneration rebuilds
+                the report output only.
 
         Returns:
             Dict with "status" ("generated" | "unavailable" | "failed"),
@@ -80,15 +106,7 @@ class AllureReportGenerator(LoggerMixin):
         results_dir = Path(results_dir).resolve()
         output_path = Path(output_path).resolve()
 
-        if force_rebuild or not self._has_valid_results(results_dir):
-            if results_dir.exists():
-                for p in results_dir.glob("*.json"):
-                    if p.name not in {"categories.json", "environment.json"}:
-                        try:
-                            p.unlink()
-                        except Exception:
-                            pass
-            self._write_fallback_results(results_dir, fallback_test_results)
+        self._prepare_results(results_dir, fallback_test_results)
 
         if not self._has_results(results_dir):
             self.logger.warning(
@@ -171,21 +189,89 @@ class AllureReportGenerator(LoggerMixin):
             }
 
     def _has_results(self, results_dir: Path) -> bool:
-        if not results_dir.exists() or not results_dir.is_dir():
+        lp_dir = _long_path(results_dir)
+        if not lp_dir.exists() or not lp_dir.is_dir():
             return False
         return any(
             p.is_file()
             and p.suffix == ".json"
             and p.name not in {"categories.json", "environment.json"}
-            for p in results_dir.glob("*.json")
+            for p in lp_dir.glob("*.json")
         )
 
+    def _prepare_results(
+        self,
+        results_dir: Path,
+        fallback_test_results: list[dict[str, Any]] | None,
+    ) -> None:
+        """Make the results directory ready for report generation.
+
+        Invariants:
+        * Real ``allure-playwright`` results are the single source of truth
+          and are NEVER deleted or replaced.
+        * Counter-named synthetic result files written by an earlier fallback
+          pass are removed whenever a report is generated — they would
+          otherwise double-count every logical test in Allure.
+        * The fallback writer only creates results when NO result files exist.
+
+        The a reasonable interpretation of ``_has_valid_results`` matters:
+        reads are long-path-safe so real results cannot be mistaken for absent.
+        """
+        has_results = self._has_results(results_dir)
+
+        if has_results:
+            # Whatever exists — real results, stale synthetic duplicates, or
+            # both — synthetic duplicates are always dropped.
+            self._remove_synthetic_results(results_dir)
+            # Real results already exist (long-path-safe check) → reuse them.
+            if self._has_valid_results(results_dir):
+                return
+            # Results exist but are all synthetic/invalid → re-synthesize.
+            if fallback_test_results:
+                self._write_fallback_results(results_dir, fallback_test_results)
+            return
+
+        # No results at all — synthesize from parsed tests when available.
+        if fallback_test_results:
+            self._write_fallback_results(results_dir, fallback_test_results)
+
+    def _remove_synthetic_results(self, results_dir: Path) -> int:
+        """Delete counter-named synthetic result files (never real results).
+
+        Real ``allure-playwright`` results are uuid-named and are untouched.
+        Returns the number of files removed.
+        """
+        lp_dir = _long_path(results_dir)
+        if not lp_dir.exists() or not lp_dir.is_dir():
+            return 0
+        removed = 0
+        for p in lp_dir.glob("*-result.json"):
+            if not _is_synthetic_result_name(p.name):
+                continue
+            try:
+                _long_path(p).unlink()
+                removed += 1
+            except Exception:
+                continue
+        if removed:
+            self.logger.info(
+                "allure_synthetic_duplicates_removed",
+                count=removed,
+                results_dir=str(results_dir),
+            )
+        return removed
+
     def _has_valid_results(self, results_dir: Path) -> bool:
-        """Check if existing JSON files contain valid steps and non-zero duration."""
-        if not results_dir.exists() or not results_dir.is_dir():
+        """Check if existing JSON files contain valid steps and non-zero duration.
+
+        Uses long-path-safe reads so that real results inside deep run
+        workspaces (paths > MAX_PATH on Windows) are never mistaken for absent.
+        """
+        lp_dir = _long_path(results_dir)
+        if not lp_dir.exists() or not lp_dir.is_dir():
             return False
         json_files = [
-            p for p in results_dir.glob("*.json")
+            p for p in lp_dir.glob("*.json")
             if p.name not in {"categories.json", "environment.json"}
         ]
         if not json_files:
@@ -193,7 +279,7 @@ class AllureReportGenerator(LoggerMixin):
 
         for p in json_files:
             try:
-                data = json.loads(p.read_text(encoding="utf-8"))
+                data = json.loads(_long_path(p).read_text(encoding="utf-8"))
                 steps = data.get("steps", [])
                 start = data.get("start", 0)
                 stop = data.get("stop", 0)
@@ -219,9 +305,20 @@ class AllureReportGenerator(LoggerMixin):
         results_dir.mkdir(parents=True, exist_ok=True)
         batch_end_ms = int(time.time() * 1000)
 
+        # Deduplicate by logical test identity before writing. Parsed inputs may
+        # describe retried/attempted tests; each logical test must produce exactly
+        # ONE Allure result file (the final attempt wins) so retries can never
+        # inflate the logical test count.
+        seen_identities: set[tuple[str, str]] = set()
+
         for index, test in enumerate(test_results):
             title = str(test.get("title") or test.get("name") or f"Test {index + 1}")
             file_name = str(test.get("file") or "")
+
+            identity = (file_name, title)
+            if identity in seen_identities:
+                continue
+            seen_identities.add(identity)
 
             raw_duration = test.get("duration_ms") or test.get("duration")
             duration_ms = int(raw_duration) if raw_duration else 0
@@ -344,7 +441,8 @@ class AllureReportGenerator(LoggerMixin):
             if status_details:
                 result["statusDetails"] = status_details
 
-            (results_dir / f"{index:04d}-result.json").write_text(
+            target = results_dir / f"{index:04d}-result.json"
+            _long_path(target).write_text(
                 json.dumps(result, indent=2),
                 encoding="utf-8",
             )
@@ -354,19 +452,17 @@ class AllureReportGenerator(LoggerMixin):
         results_dir: Path,
         environment: dict[str, str] | None,
     ) -> None:
-        if not environment:
-            return
-        lines = [f"{key}={value}" for key, value in environment.items() if value]
-        if not lines:
-            return
-        (results_dir / "environment.properties").write_text(
-            "\n".join(lines),
-            encoding="utf-8",
-        )
+        if environment:
+            lines = [f"{key}={value}" for key, value in environment.items() if value]
+            if lines:
+                _long_path(results_dir / "environment.properties").write_text(
+                    "\n".join(lines),
+                    encoding="utf-8",
+                )
 
     def _write_categories_file(self, results_dir: Path) -> None:
         categories_path = results_dir / "categories.json"
-        categories_path.write_text(
+        _long_path(categories_path).write_text(
             json.dumps(DEFAULT_CATEGORIES, indent=2),
             encoding="utf-8",
         )

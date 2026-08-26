@@ -169,9 +169,11 @@ export function ExecutionMonitor() {
     );
   }
 
-  const isTimeout = classification === 'playwright_timeout';
+  const isTimeout = classification === 'execution_timeout';
   // Infrastructure failure = Playwright never started OR all tests not_executed (not a timeout)
-  const hasInfrastructureFailure = !isTimeout && stats.executed === 0 && stats.notExecuted > 0;
+  const hasInfrastructureFailure =
+    classification === 'infrastructure_failure' ||
+    (!isTimeout && stats.executed === 0 && stats.notExecuted > 0);
 
   // Show "completed but no results" state when stage done but 0 tests
   if (exStage?.status === 'completed' && results.length === 0) {

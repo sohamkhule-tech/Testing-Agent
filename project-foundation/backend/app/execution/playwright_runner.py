@@ -34,10 +34,10 @@ class PlaywrightRunner(LoggerMixin):
     # Classification values returned on every execution result so callers/UI
     # can distinguish root cause instead of a generic "Test Execution Failed".
     CLASSIFICATION_PASSED = "passed"
-    CLASSIFICATION_TEST_FAILURES = "test_failures"
-    CLASSIFICATION_PLAYWRIGHT_TIMEOUT = "playwright_timeout"
+    CLASSIFICATION_TEST_EXECUTION_COMPLETED_WITH_FAILURES = "test_execution_completed_with_failures"
+    CLASSIFICATION_EXECUTION_TIMEOUT = "execution_timeout"
     CLASSIFICATION_COMMAND_FAILURE = "command_failure"
-    CLASSIFICATION_INFRASTRUCTURE_ERROR = "infrastructure_error"
+    CLASSIFICATION_INFRASTRUCTURE_FAILURE = "infrastructure_failure"
 
     def __init__(self) -> None:
         super().__init__()
@@ -113,7 +113,7 @@ class PlaywrightRunner(LoggerMixin):
                     test_results = await self._parse_results(project_path)
                     if not test_results.get("tests"):
                         result = dict(result or {})
-                        result.setdefault("classification", self.CLASSIFICATION_TEST_FAILURES)
+                        result.setdefault("classification", self.CLASSIFICATION_TEST_EXECUTION_COMPLETED_WITH_FAILURES)
                 else:
                     self.logger.warning(
                         "skipping_grep_retry_due_to_infrastructure_failure",
@@ -123,6 +123,22 @@ class PlaywrightRunner(LoggerMixin):
 
             duration = (datetime.now(UTC) - start_time).total_seconds()
 
+            classification = result.get(
+                "classification",
+                self._classify_result(result["return_code"], result["stderr"], test_results),
+            )
+
+            # A wall-clock process kill must not be reported as a timeout when
+            # Playwright already completed and wrote usable results before being
+            # stopped (e.g. teardown hung after all tests + reporters finished).
+            # results.json is only written by Playwright when the run complets,
+            # so a non-empty parse is authoritative evidence of completion.
+            if (
+                classification == self.CLASSIFICATION_EXECUTION_TIMEOUT
+                and test_results.get("tests")
+            ):
+                classification = self.CLASSIFICATION_TEST_EXECUTION_COMPLETED_WITH_FAILURES
+
             execution_result = {
                 "start_time": start_time.isoformat(),
                 "end_time": datetime.now(UTC).isoformat(),
@@ -131,7 +147,7 @@ class PlaywrightRunner(LoggerMixin):
                 "return_code": result["return_code"],
                 "stdout": result["stdout"],
                 "stderr": result["stderr"],
-                "classification": result.get("classification", self._classify_result(result["return_code"], result["stderr"], test_results)),
+                "classification": classification,
                 "test_results": test_results,
                 "browser": config.browser.value if config.browser else "all",
                 "results_file": str(project_path / "test-results" / "results.json"),
@@ -278,9 +294,9 @@ class PlaywrightRunner(LoggerMixin):
     def _classify_result(return_code: int, stderr: str, test_results: dict[str, Any]) -> str:
         """Map an execution outcome into a stable classification."""
         if return_code == -1:
-            return PlaywrightRunner.CLASSIFICATION_PLAYWRIGHT_TIMEOUT
+            return PlaywrightRunner.CLASSIFICATION_EXECUTION_TIMEOUT
         if return_code in (-127, -128):
-            return PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_ERROR
+            return PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_FAILURE
         # Node crashed before Playwright started: module not found, syntax error, etc.
         if return_code != 0 and not test_results.get("tests"):
             fatal_patterns = (
@@ -291,10 +307,10 @@ class PlaywrightRunner(LoggerMixin):
                 "node:internal",
             )
             if any(p in (stderr or "") for p in fatal_patterns):
-                return PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_ERROR
+                return PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_FAILURE
         if return_code == 0:
             return PlaywrightRunner.CLASSIFICATION_PASSED
-        return PlaywrightRunner.CLASSIFICATION_TEST_FAILURES
+        return PlaywrightRunner.CLASSIFICATION_TEST_EXECUTION_COMPLETED_WITH_FAILURES
 
     @staticmethod
     def _save_command_log(
@@ -450,7 +466,7 @@ class PlaywrightRunner(LoggerMixin):
                 "return_code": -1,
                 "stdout": "",
                 "stderr": f"Execution timed out after {timeout} seconds",
-                "classification": self.CLASSIFICATION_PLAYWRIGHT_TIMEOUT,
+                "classification": self.CLASSIFICATION_EXECUTION_TIMEOUT,
             }
         except FileNotFoundError as e:
             error_msg = f"Command not found: {exec_command[0]} ({e})"
@@ -479,7 +495,7 @@ class PlaywrightRunner(LoggerMixin):
                 "return_code": -128,
                 "stdout": "",
                 "stderr": error_msg,
-                "classification": self.CLASSIFICATION_INFRASTRUCTURE_ERROR,
+                "classification": self.CLASSIFICATION_INFRASTRUCTURE_FAILURE,
             }
 
     async def _parse_results(self, project_path: Path) -> dict[str, Any]:

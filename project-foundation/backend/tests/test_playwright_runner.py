@@ -218,7 +218,7 @@ class TestPlaywrightRunner:
 
         assert result["return_code"] == -1
         assert "timed out" in result["stderr"].lower()
-        assert result["classification"] == "playwright_timeout"
+        assert result["classification"] == "execution_timeout"
 
     def test_build_command_grep_is_single_argument_with_pipes(self):
         """Grep expressions containing | must be passed as ONE argument.
@@ -376,12 +376,12 @@ class TestPlaywrightRunner:
     def test_classify_result(self):
         runner = PlaywrightRunner()
         cases = [
-            (-1, runner.CLASSIFICATION_PLAYWRIGHT_TIMEOUT),
-            (-127, runner.CLASSIFICATION_COMMAND_FAILURE),
-            (-128, runner.CLASSIFICATION_INFRASTRUCTURE_ERROR),
+            (-1, runner.CLASSIFICATION_EXECUTION_TIMEOUT),
+            (-127, runner.CLASSIFICATION_INFRASTRUCTURE_FAILURE),
+            (-128, runner.CLASSIFICATION_INFRASTRUCTURE_FAILURE),
             (0, runner.CLASSIFICATION_PASSED),
-            (1, runner.CLASSIFICATION_TEST_FAILURES),
-            (2, runner.CLASSIFICATION_TEST_FAILURES),
+            (1, runner.CLASSIFICATION_TEST_EXECUTION_COMPLETED_WITH_FAILURES),
+            (2, runner.CLASSIFICATION_TEST_EXECUTION_COMPLETED_WITH_FAILURES),
         ]
         for rc, expected in cases:
             assert runner._classify_result(rc, "", {"tests": []}) == expected
@@ -522,11 +522,11 @@ class TestPlaywrightRunner:
                     assert "creationflags" not in captured_popen_kwargs, \
                         "creationflags must NOT be passed on Unix"
 
-    async def test_execute_command_infrastructure_failure_returns_infrastructure_error(self, temp_dir: Path):
-        """When subprocess creation fails, result is infrastructure_error with 0 tests.
+    async def test_execute_command_infrastructure_failure_returns_infrastructure_failure(self, temp_dir: Path):
+        """When subprocess creation fails, result is infrastructure_failure with 0 tests.
 
         This verifies that NotImplementedError (or any startup exception) produces
-        classification=infrastructure_error and does NOT fabricate test failures.
+        classification=infrastructure_failure and does NOT fabricate test failures.
         """
         from unittest.mock import patch
 
@@ -544,7 +544,7 @@ class TestPlaywrightRunner:
                 result = await runner._execute_command(command, temp_dir, env, timeout=60)
 
         assert result["return_code"] == -128
-        assert result["classification"] == PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_ERROR
+        assert result["classification"] == PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_FAILURE
         assert "NotImplementedError" in result["stderr"]
 
     async def test_execute_command_no_retry_on_infrastructure_failure(self, temp_dir: Path):
@@ -580,4 +580,4 @@ class TestPlaywrightRunner:
         assert popen_call_count == 1, \
             f"Expected 1 Popen call (no retry on infrastructure failure), got {popen_call_count}"
         assert result["return_code"] == -128
-        assert result["classification"] == PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_ERROR
+        assert result["classification"] == PlaywrightRunner.CLASSIFICATION_INFRASTRUCTURE_FAILURE

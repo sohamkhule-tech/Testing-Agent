@@ -703,10 +703,27 @@ async def get_execution_results(
     return_code = (exec_meta or {}).get("return_code")
     classification = (exec_meta or {}).get("classification")
 
-    execution_status = "completed"
+    # Normalize legacy classification values written before the taxonomy was
+    # clarified (playwright_timeout → execution_timeout).
     if classification == "playwright_timeout":
-        execution_status = "execution_timeout"
-    elif return_code is not None and return_code < 0:
+        classification = "execution_timeout"
+
+    execution_status = "completed"
+    executed_count = sum(1 for t in tests if t.get("status") in ("passed", "failed", "skipped"))
+    if classification == "execution_timeout":
+        # A wall-clock kill that still produced complete, usable results is a
+        # completed execution with failures — NOT a timeout. This heals runs
+        # that were previously tagged as timeouts despite full results.
+        if executed_count > 0 or total > 0:
+            classification = "test_execution_completed_with_failures"
+            execution_status = "completed"
+        else:
+            execution_status = "execution_timeout"
+    elif classification == "infrastructure_failure":
+        execution_status = "infrastructure_failure"
+    elif classification == "test_execution_completed_with_failures":
+        execution_status = "completed"
+    elif return_code is not None and return_code < 0 and executed_count == 0:
         execution_status = "infrastructure_failure"
     elif summary:
         execution_status = summary.get("status", "completed")
