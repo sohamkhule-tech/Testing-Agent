@@ -89,11 +89,11 @@ function fileIcon(name: string, isDir: boolean, isExpanded: boolean) {
 function iconColor(name: string) {
   const ext = name.split('.').pop() || '';
   switch (ext) {
-    case 'ts': case 'tsx': return 'text-blue-400';
-    case 'json': return 'text-amber-400';
-    case 'md': return 'text-purple-400';
-    case 'yml': case 'yaml': return 'text-sky-400';
-    default: return 'text-muted-foreground';
+    case 'ts': case 'tsx': return 'text-blue-600 dark:text-blue-400';
+    case 'json': return 'text-amber-600 dark:text-amber-400';
+    case 'md': return 'text-purple-600 dark:text-purple-400';
+    case 'yml': case 'yaml': return 'text-sky-600 dark:text-sky-400';
+    default: return 'text-slate-600 dark:text-muted-foreground';
   }
 }
 
@@ -368,13 +368,13 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
                     isStreaming && i === visibleLines.length - 1 && 'bg-cyan-950/30 border-l-2 border-cyan-400',
                   )}
                 >
-                  <td className="select-none text-right pr-4 pl-3 text-muted-foreground border-r border-border w-12 align-top leading-6">
+                  <td className="select-none text-right pr-4 pl-3 text-slate-500 dark:text-zinc-500 bg-slate-100/70 dark:bg-muted/20 border-r border-border w-12 align-top leading-6 font-medium">
                     {i + 1}
                   </td>
                   <td className="pl-3 leading-6 whitespace-pre-wrap break-all">
                     {highlightCode(line)}
                     {isStreaming && i === visibleLines.length - 1 && (
-                      <span className="inline-block w-1.5 h-3.5 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+                      <span className="inline-block w-1.5 h-3.5 bg-cyan-500 ml-0.5 animate-pulse align-middle" />
                     )}
                   </td>
                 </tr>
@@ -388,12 +388,44 @@ export function LiveCodeViewer({ file, isLoading, isStreaming }: LiveCodeViewerP
 }
 
 function highlightCode(line: string): React.ReactNode {
-  if (/^import\b|^export\b/.test(line)) return <span className="text-purple-400">{line}</span>;
-  if (/^(async\s+)?(function|class)\b/.test(line)) return <span className="text-amber-400">{line}</span>;
-  if (/const\s+\w+\s*[:=]|let\s+\w+\s*[:=]/.test(line)) return <span className="text-cyan-400">{line}</span>;
-  if (/\btest\b\(/.test(line)) return <span className="text-emerald-400">{line}</span>;
-  if (/\bexpect\b\(/.test(line)) return <span className="text-orange-400">{line}</span>;
-  if (/^(\s*\/\/|^\s*\/\*|\s*\*\/)/.test(line)) return <span className="text-muted-foreground italic">{line}</span>;
   if (/^\s*$/.test(line)) return '\u00A0';
-  return line;
+
+  // Comments (// or /* or *)
+  if (/^\s*(\/\/|\/\*|\*)/.test(line)) {
+    return <span className="text-slate-500 dark:text-slate-400 italic font-normal">{line}</span>;
+  }
+
+  // Tokenize line with regex capturing strings, keywords, test methods, numbers, booleans, identifiers
+  const tokenRegex = /('(?:\\.|[^'])*'|"(?:\\.|[^"])*"|`(?:\\.|[^`])*`|\/\/[^\n]*|\b(?:import|export|from|as|default|const|let|var|function|class|extends|async|await|return|if|else|new|typeof|instanceof|try|catch|throw|finally)\b|\b(?:test|describe|beforeEach|afterEach|expect|page|goto|fill|click|selectOption|waitForSelector|toHaveURL|toBeVisible|toContainText|toEqual|toBe)\b|\b\d+(?:\.\d+)?\b|\b(?:true|false|null|undefined)\b|[a-zA-Z_$][a-zA-Z0-9_$]*|[^\s\w]+|\s+)/g;
+
+  const tokens = line.match(tokenRegex) || [line];
+
+  return (
+    <>
+      {tokens.map((token, index) => {
+        // Strings ('...', "...", `...`)
+        if (/^['"`]/.test(token)) {
+          return <span key={index} className="text-emerald-700 dark:text-emerald-300 font-medium">{token}</span>;
+        }
+        // Keywords
+        if (/^(import|export|from|as|default|const|let|var|function|class|extends|async|await|return|if|else|new|typeof|instanceof|try|catch|throw|finally)$/.test(token)) {
+          return <span key={index} className="text-purple-700 dark:text-purple-400 font-semibold">{token}</span>;
+        }
+        // Test methods & Playwright actions
+        if (/^(test|describe|beforeEach|afterEach|expect|goto|fill|click|selectOption|waitForSelector|toHaveURL|toBeVisible|toContainText|toEqual|toBe)$/.test(token)) {
+          return <span key={index} className="text-blue-700 dark:text-cyan-400 font-semibold">{token}</span>;
+        }
+        // Booleans & Nulls & Numbers
+        if (/^(true|false|null|undefined|\d+(\.\d+)?)$/.test(token)) {
+          return <span key={index} className="text-amber-700 dark:text-amber-400 font-semibold">{token}</span>;
+        }
+        // UpperCamelCase Identifiers (Page Objects, Classes)
+        if (/^[A-Z][a-zA-Z0-9_$]*$/.test(token)) {
+          return <span key={index} className="text-violet-800 dark:text-violet-300 font-semibold">{token}</span>;
+        }
+        // Default text
+        return <span key={index} className="text-slate-800 dark:text-slate-100">{token}</span>;
+      })}
+    </>
+  );
 }

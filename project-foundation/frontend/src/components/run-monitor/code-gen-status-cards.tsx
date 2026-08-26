@@ -416,19 +416,19 @@ export function LiveMetricsDashboard() {
       </div>
 
       <div className="grid grid-cols-4 md:grid-cols-7 gap-2">
-        <MetricCard label="Files" value={metrics.totalFiles} color="text-violet-400" />
-        <MetricCard label="Pages" value={metrics.pageObjects} color="text-blue-400" />
-        <MetricCard label="Tests" value={metrics.testFiles} color="text-emerald-400" />
-        <MetricCard label="Scenarios" value={metrics.scenarios} color="text-amber-400" />
-        <MetricCard label="Fixtures" value={metrics.fixtures} color="text-pink-400" />
-        <MetricCard label="Config" value={metrics.config} color="text-muted-foreground" />
-        <MetricCard label="Helpers" value={metrics.helpers} color="text-cyan-400" />
+        <MetricCard label="Files" value={metrics.totalFiles} color="text-violet-600 dark:text-violet-400" />
+        <MetricCard label="Pages" value={metrics.pageObjects} color="text-blue-600 dark:text-blue-400" />
+        <MetricCard label="Tests" value={metrics.testFiles} color="text-emerald-600 dark:text-emerald-400" />
+        <MetricCard label="Scenarios" value={metrics.scenarios} color="text-amber-600 dark:text-amber-400" />
+        <MetricCard label="Fixtures" value={metrics.fixtures} color="text-pink-600 dark:text-pink-400" />
+        <MetricCard label="Config" value={metrics.config} color="text-slate-700 dark:text-muted-foreground" />
+        <MetricCard label="Helpers" value={metrics.helpers} color="text-cyan-600 dark:text-cyan-400" />
       </div>
 
       {metrics.remaining > 0 && (
         <div className="mt-3 pt-3 border-t border-border">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Remaining in queue</span>
+            <span className="text-muted-foreground font-medium">Remaining in queue</span>
             <span className="font-mono font-semibold text-foreground">{metrics.remaining}</span>
           </div>
         </div>
@@ -447,9 +447,9 @@ function MetricCard({
   color: string;
 }) {
   return (
-    <div className="p-2 rounded-lg bg-accent text-center">
-      <p className={cn('text-sm font-bold tabular-nums', color)}>{value}</p>
-      <p className="text-[9px] text-muted-foreground uppercase tracking-wide mt-0.5">{label}</p>
+    <div className="p-2.5 rounded-lg bg-card border border-border shadow-2xs text-center">
+      <p className={cn('text-base font-bold tabular-nums', color)}>{value}</p>
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mt-0.5">{label}</p>
     </div>
   );
 }

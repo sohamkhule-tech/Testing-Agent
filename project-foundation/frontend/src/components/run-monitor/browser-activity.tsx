@@ -325,15 +325,6 @@ export function LiveBrowserPreview({ runId }: { runId: string }) {
         >
           {fitMode === 'contain' ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
         </button>
-
-        <button
-          onClick={openSeparateWindow}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-blue-300 text-xs font-medium transition-all duration-150 shadow-sm ml-1"
-          title="Open Live Crawler View in a separate window"
-        >
-          <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
-          <span>Open Separately</span>
-        </button>
       </div>
 
       {/* Viewport with cursor overlay */}

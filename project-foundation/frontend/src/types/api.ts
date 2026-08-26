@@ -21,6 +21,35 @@ export interface Project {
   default_prompt_text?: string;
 }
 
+export interface TokenUsageInfo {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface OptimizePromptRequest {
+  prompt: string;
+  model?: string;
+}
+
+export interface OptimizePromptResponse {
+  originalPrompt: string;
+  optimizedPrompt: string;
+  model: string;
+  usage: TokenUsageInfo;
+}
+
+export interface SupportedModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export interface ModelListResponse {
+  models: SupportedModel[];
+  defaultModel: string;
+}
+
 export interface CreateProjectRequest {
   name: string;
   description?: string;
@@ -50,6 +79,7 @@ export interface TestRun {
   scenarios_generated?: number;
   review_status?: ReviewStatus;
   error_message?: string;
+  ai_model?: string;
 }
 
 export interface RunListResponse {
@@ -222,6 +252,7 @@ export interface PromptAnalysis {
   estimated: EstimatedStats;
   reasoning_steps: string[];
   parsed_intent: ParsedPromptIntent;
+  ai_model?: string;
 }
 
 // Run Status Response (from GET /api/v1/runs/{run_id}/status)

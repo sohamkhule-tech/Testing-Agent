@@ -36,19 +36,19 @@ function StatCard({
 
   return (
     <div className={cn(
-      'relative p-3 rounded-xl border transition-all duration-300',
-      animate ? 'border-blue-500/40 bg-blue-500/10' : 'border-border bg-muted',
+      'relative p-3.5 rounded-xl border transition-all duration-300',
+      animate ? 'border-blue-500/40 bg-blue-500/10' : 'border-border bg-card shadow-2xs',
     )}>
       <div className="flex items-center justify-between mb-1.5">
         <Icon className={cn('h-4 w-4', color)} />
         {animate && (
-          <span className="text-[10px] text-blue-400 animate-pulse">+</span>
+          <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold animate-pulse">+</span>
         )}
       </div>
-      <p className={cn('text-2xl font-bold tabular-nums transition-colors duration-300', animate ? 'text-blue-300' : color)}>
+      <p className={cn('text-2xl font-bold tabular-nums transition-colors duration-300', animate ? 'text-blue-600 dark:text-blue-300' : color)}>
         {value}
       </p>
-      <p className="text-[10px] text-muted-foreground mt-0.5">{label}</p>
+      <p className="text-[11px] font-semibold text-muted-foreground mt-0.5">{label}</p>
     </div>
   );
 }
@@ -69,30 +69,30 @@ export function LiveStats() {
   const criticalCount = scenarios.filter((s) => s.priority === 'critical').length;
 
   return (
-    <div className="grid grid-cols-4 gap-2">
+    <div className="grid grid-cols-4 gap-2.5">
       <StatCard
         label="Modules"
         value={modules.length}
         icon={Layers}
-        color="text-violet-400"
+        color="text-violet-700 dark:text-violet-400"
       />
       <StatCard
         label="Scenarios"
         value={scenarios.length || testPlanScenarios}
         icon={FileText}
-        color="text-blue-400"
+        color="text-blue-700 dark:text-blue-400"
       />
       <StatCard
         label="Critical"
         value={criticalCount}
         icon={AlertTriangle}
-        color="text-red-400"
+        color="text-red-700 dark:text-red-400"
       />
       <StatCard
         label="Auto Coverage"
         value={confidence.automationCoverage}
         icon={Zap}
-        color="text-emerald-400"
+        color="text-emerald-700 dark:text-emerald-400"
       />
     </div>
   );

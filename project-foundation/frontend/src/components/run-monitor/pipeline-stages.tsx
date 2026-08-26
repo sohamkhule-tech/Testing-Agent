@@ -55,8 +55,8 @@ function getStatusConfig(status: StageStatus): StatusConfig {
         icon: Loader2,
         ring: 'ring-2 ring-blue-500 ring-offset-2 ring-offset-background',
         bg: 'bg-blue-500/15 border-blue-500',
-        iconColor: 'text-blue-400 animate-spin',
-        labelColor: 'text-blue-400 font-semibold',
+        iconColor: 'text-blue-600 dark:text-blue-400 animate-spin',
+        labelColor: 'text-blue-700 dark:text-blue-400 font-semibold',
         dot: 'bg-blue-500 animate-pulse',
         animate: true,
       };
@@ -65,8 +65,8 @@ function getStatusConfig(status: StageStatus): StatusConfig {
         icon: CheckCircle2,
         ring: '',
         bg: 'bg-emerald-500/15 border-emerald-500/50',
-        iconColor: 'text-emerald-400',
-        labelColor: 'text-emerald-400',
+        iconColor: 'text-emerald-600 dark:text-emerald-400',
+        labelColor: 'text-emerald-700 dark:text-emerald-400 font-medium',
         dot: 'bg-emerald-500',
       };
     case 'failed':
@@ -74,8 +74,8 @@ function getStatusConfig(status: StageStatus): StatusConfig {
         icon: XCircle,
         ring: 'ring-2 ring-red-500/60 ring-offset-1 ring-offset-background',
         bg: 'bg-red-500/15 border-red-500/60',
-        iconColor: 'text-red-400',
-        labelColor: 'text-red-400',
+        iconColor: 'text-red-600 dark:text-red-400',
+        labelColor: 'text-red-700 dark:text-red-400 font-medium',
         dot: 'bg-red-500',
       };
     case 'waiting_for_user':
@@ -83,8 +83,8 @@ function getStatusConfig(status: StageStatus): StatusConfig {
         icon: AlertTriangle,
         ring: 'ring-2 ring-amber-400 ring-offset-2 ring-offset-background',
         bg: 'bg-amber-500/15 border-amber-400/70',
-        iconColor: 'text-amber-400 animate-pulse',
-        labelColor: 'text-amber-400 font-semibold',
+        iconColor: 'text-amber-600 dark:text-amber-400 animate-pulse',
+        labelColor: 'text-amber-700 dark:text-amber-400 font-semibold',
         dot: 'bg-amber-400 animate-ping',
         animate: true,
       };
@@ -93,8 +93,8 @@ function getStatusConfig(status: StageStatus): StatusConfig {
         icon: SkipForward,
         ring: '',
         bg: 'bg-muted border-input',
-        iconColor: 'text-muted-foreground',
-        labelColor: 'text-muted-foreground',
+        iconColor: 'text-slate-500 dark:text-muted-foreground',
+        labelColor: 'text-slate-600 dark:text-muted-foreground',
         dot: 'bg-muted-foreground',
       };
     default: // pending
@@ -102,8 +102,8 @@ function getStatusConfig(status: StageStatus): StatusConfig {
         icon: Circle,
         ring: '',
         bg: 'bg-muted border-input',
-        iconColor: 'text-muted-foreground',
-        labelColor: 'text-muted-foreground',
+        iconColor: 'text-slate-400 dark:text-zinc-500',
+        labelColor: 'text-slate-600 dark:text-zinc-400',
         dot: 'bg-secondary',
       };
   }

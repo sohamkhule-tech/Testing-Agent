@@ -100,19 +100,19 @@ export function CodeGenWorkspace() {
 
   // Real-time auto-switch to currently generating file
   useEffect(() => {
-    if (currentGenFile?.filename) {
-      const match = displayFiles.find((f) => f.name === currentGenFile.filename || f.path.endsWith(currentGenFile.filename));
-      if (match) {
-        setSelectedFile(match);
-      } else {
-        setSelectedFile({
-          path: `${currentGenFile.folder}/${currentGenFile.filename}`,
-          name: currentGenFile.filename,
-          file_type: currentGenFile.file_type,
-          lines_of_code: undefined,
-          size_bytes: undefined,
-        });
-      }
+    if (!currentGenFile?.filename) return;
+    const match = displayFiles.find((f) => f.name === currentGenFile.filename || f.path.endsWith(currentGenFile.filename));
+    if (match) {
+      setSelectedFile((prev) => (prev?.name === match.name && prev?.path === match.path ? prev : match));
+    } else {
+      const fallback: GenFile = {
+        path: `${currentGenFile.folder}/${currentGenFile.filename}`,
+        name: currentGenFile.filename,
+        file_type: currentGenFile.file_type,
+        lines_of_code: undefined,
+        size_bytes: undefined,
+      };
+      setSelectedFile((prev) => (prev?.name === fallback.name && prev?.path === fallback.path ? prev : fallback));
     }
   }, [currentGenFile, displayFiles]);
 

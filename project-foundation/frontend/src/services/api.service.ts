@@ -13,6 +13,7 @@ import {
   RunPromptResponse,
   PromptAnalysis,
   RunLogsResponse,
+  ModelListResponse,
 } from '@/types/api';
 
 export const projectsService = {
@@ -73,10 +74,11 @@ export const runsService = {
   },
 
   // Generate run (trigger workflow, returns immediately, runs in background)
-  create: async (projectId: string, userPrompt?: string): Promise<{ run_id: string; status: string }> => {
+  create: async (projectId: string, userPrompt?: string, model?: string): Promise<{ run_id: string; status: string; ai_model?: string }> => {
     const body: Record<string, any> = { project_id: projectId };
     if (userPrompt) body.user_prompt = userPrompt;
-    return apiClient.post<{ run_id: string; status: string }>('/api/v1/runs', body);
+    if (model) body.ai = { model };
+    return apiClient.post<{ run_id: string; status: string; ai_model?: string }>('/api/v1/runs', body);
   },
 
   // Phase 1 — get prompt used for a run
@@ -85,10 +87,11 @@ export const runsService = {
   },
 
   // Transparency — analyse prompt before starting a run
-  analyzePrompt: async (projectId: string, userPrompt: string): Promise<PromptAnalysis> => {
+  analyzePrompt: async (projectId: string, userPrompt: string, model?: string): Promise<PromptAnalysis> => {
     return apiClient.post<PromptAnalysis>('/api/v1/runs/analyze-prompt', {
       project_id: projectId,
       user_prompt: userPrompt,
+      ai: model ? { model } : undefined,
     });
   },
 
@@ -179,5 +182,18 @@ export const healthService = {
   // Check API health
   check: async (): Promise<{ status: string }> => {
     return apiClient.get<{ status: string }>('/health');
+  },
+};
+
+export const promptsService = {
+  // Optimize prompt via LLM
+  optimize: async (prompt: string, model?: string): Promise<import('@/types/api').OptimizePromptResponse> => {
+    return apiClient.post<import('@/types/api').OptimizePromptResponse>('/api/v1/prompts/optimize', { prompt, model });
+  },
+};
+
+export const modelsService = {
+  getAll: async (): Promise<ModelListResponse> => {
+    return apiClient.get<ModelListResponse>('/api/v1/models');
   },
 };

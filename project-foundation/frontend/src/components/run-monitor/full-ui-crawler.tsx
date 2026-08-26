@@ -63,11 +63,11 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-foreground">Live Web Crawler UI Workspace</h2>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                 Full UI Mode
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground font-medium">
               {browser.currentUrl ? `Navigating: ${browser.currentUrl}` : 'Real-time autonomous browser execution & data collection'}
             </p>
           </div>
@@ -77,17 +77,17 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
         <div className="flex items-center gap-2">
           <button
             onClick={openPopout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted border border-input text-foreground text-xs font-medium transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary hover:bg-muted border border-border text-foreground text-xs font-semibold transition-all"
             title="Open in standalone window"
           >
-            <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
+            <ExternalLink className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
             <span className="hidden sm:inline">Pop-out Window</span>
           </button>
 
           {isModal && onCloseModal && (
             <button
               onClick={onCloseModal}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-xs font-medium transition-all"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold text-xs shadow-xs transition-all"
               title="Exit Full UI Mode"
             >
               <X className="h-4 w-4" />

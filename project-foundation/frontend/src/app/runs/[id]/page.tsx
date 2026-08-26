@@ -28,6 +28,7 @@ import { CodeGenWorkspace }         from '@/components/run-monitor/code-gen-work
 import { FailedStageCard }         from '@/components/run-monitor/failed-stage-card';
 import { StageRecoveryPanel }      from '@/components/run-monitor/stage-recovery-panel';
 import { ExecutionReportPanel }    from '@/components/run-monitor/execution-report-panel';
+import { AllureReportPanel }       from '@/components/run-monitor/allure-report-panel';
 
 // New AI Agent Experience Components
 import { AIThinkingPanel }         from '@/components/run-monitor/ai-thinking-panel';
@@ -270,8 +271,13 @@ function TabContent({ tab, runId, overallStatus, runState, stateLoading, stateEr
 
     case 'reports':
       return (
-        <div className="rounded-xl border border-border bg-card p-5">
-          <ExecutionReportPanel runId={runId} />
+        <div className="space-y-6">
+          <div className="rounded-xl border border-border bg-card p-5">
+            <AllureReportPanel runId={runId} />
+          </div>
+          <div className="rounded-xl border border-border bg-card p-5">
+            <ExecutionReportPanel runId={runId} />
+          </div>
         </div>
       );
 
@@ -302,10 +308,18 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const { data: runState, isLoading: stateLoading, error: stateError } = useRunState(id);
   const didHydrate = useRef<string | null>(null);
   useEffect(() => {
-    if (runState && didHydrate.current !== id) {
+    if (!runState) return;
+    if (didHydrate.current !== id) {
       hydrate(runState);
       useWorkflowStore.getState().hydrateArtifacts(id);
       didHydrate.current = id;
+    } else {
+      // Monotonic reconciliation on every /state poll. This is the catch-up
+      // mechanism for a missed/dropped SSE transition: it advances the store
+      // (e.g. code_generation pending→completed, execution pending→running)
+      // forward when the authoritative REST snapshot is ahead, and never
+      // regresses live SSE state. SSE remains the primary real-time source.
+      useWorkflowStore.getState().reconcile(runState);
     }
   }, [id, runState, hydrate]);
 
@@ -399,22 +413,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
             {/* Full UI Mode Button */}
             <button
               onClick={() => setIsFullUIModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600/20 hover:bg-violet-600/35 border border-violet-500/40 text-violet-300 text-xs font-medium transition-all duration-150 shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white border border-violet-700 text-xs font-semibold transition-all duration-150 shadow-xs active:scale-95"
               title="Expand Crawler to Full UI Screen Workspace"
             >
-              <Maximize2 className="h-3.5 w-3.5 text-violet-400" />
+              <Maximize2 className="h-3.5 w-3.5 text-white" />
               <span className="hidden sm:inline">Full UI Mode</span>
-            </button>
-
-            {/* Popout button */}
-            <button
-              onClick={openSeparateWindow}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/35 border border-blue-500/40 text-blue-300 text-xs font-medium transition-all duration-150 shadow-sm"
-              title="Open Live Crawler View in a separate standalone window"
-            >
-              <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
-              <span className="hidden sm:inline">Open Live Screen Separately</span>
-              <span className="sm:hidden">Separately</span>
             </button>
 
             {/* SSE indicator */}

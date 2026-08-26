@@ -43,12 +43,12 @@ export function TestPlanSummary() {
   const automationCoverage = confidence.automationCoverage || (scenarios.length > 0 ? Math.round(((scenarios.length - lowCount) / scenarios.length) * 100) : 0);
 
   return (
-    <div className="rounded-xl border border-border bg-muted/80 p-4 space-y-4">
+    <div className="rounded-xl border border-border bg-card shadow-2xs p-4 space-y-4">
       <div className="flex items-center gap-2">
-        <Gauge className="h-4 w-4 text-blue-400" />
+        <Gauge className="h-4 w-4 text-blue-600 dark:text-blue-400" />
         <p className="text-xs font-semibold text-foreground">AI Test Plan Summary</p>
         {testPlanGenerated && (
-          <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+          <span className="ml-auto text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
             Generated
           </span>
         )}
@@ -57,15 +57,15 @@ export function TestPlanSummary() {
       {/* Stats grid */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { label: 'Modules', value: modules.length, icon: Layers, color: 'text-violet-400' },
-          { label: 'Pages', value: totalPages, icon: Eye, color: 'text-blue-400' },
-          { label: 'UI Components', value: totalUIComponents, icon: Sliders, color: 'text-cyan-400' },
-          { label: 'Scenarios', value: totalScenarios, icon: FileText, color: 'text-emerald-400' },
+          { label: 'Modules', value: modules.length, icon: Layers, color: 'text-violet-700 dark:text-violet-400' },
+          { label: 'Pages', value: totalPages, icon: Eye, color: 'text-blue-700 dark:text-blue-400' },
+          { label: 'UI Components', value: totalUIComponents, icon: Sliders, color: 'text-cyan-700 dark:text-cyan-400' },
+          { label: 'Scenarios', value: totalScenarios, icon: FileText, color: 'text-emerald-700 dark:text-emerald-400' },
         ].map((s) => (
-          <div key={s.label} className="p-2.5 rounded-lg bg-accent border border-border text-center">
+          <div key={s.label} className="p-2.5 rounded-lg bg-muted/60 border border-border text-center">
             <s.icon className={cn('h-4 w-4 mx-auto mb-1', s.color)} />
             <p className={cn('text-lg font-bold tabular-nums', s.color)}>{s.value}</p>
-            <p className="text-[9px] text-muted-foreground">{s.label}</p>
+            <p className="text-[9px] font-medium text-muted-foreground">{s.label}</p>
           </div>
         ))}
       </div>
@@ -76,14 +76,14 @@ export function TestPlanSummary() {
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Scenario Breakdown</p>
           <div className="grid grid-cols-4 gap-2">
             {[
-              { label: 'Functional', value: functionalCount, color: 'text-blue-400' },
-              { label: 'Negative', value: negativeCount, color: 'text-red-400' },
-              { label: 'Boundary', value: boundaryCount, color: 'text-amber-400' },
-              { label: 'Auth/Security', value: authCount + securityCount, color: 'text-purple-400' },
+              { label: 'Functional', value: functionalCount, color: 'text-blue-700 dark:text-blue-400' },
+              { label: 'Negative', value: negativeCount, color: 'text-red-700 dark:text-red-400' },
+              { label: 'Boundary', value: boundaryCount, color: 'text-amber-700 dark:text-amber-400' },
+              { label: 'Auth/Security', value: authCount + securityCount, color: 'text-purple-700 dark:text-purple-400' },
             ].map((s) => (
-              <div key={s.label} className="p-2 rounded-lg bg-accent/60">
+              <div key={s.label} className="p-2 rounded-lg bg-muted/60 border border-border">
                 <p className={cn('text-sm font-bold tabular-nums', s.color)}>{s.value}</p>
-                <p className="text-[9px] text-muted-foreground">{s.label}</p>
+                <p className="text-[9px] font-medium text-muted-foreground">{s.label}</p>
               </div>
             ))}
           </div>
@@ -102,14 +102,14 @@ export function TestPlanSummary() {
               { label: 'Low', value: lowCount, color: 'bg-zinc-500' },
             ].map((s) => (
               <div key={s.label} className="flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground w-14 shrink-0">{s.label}</span>
+                <span className="text-[10px] font-medium text-muted-foreground w-14 shrink-0">{s.label}</span>
                 <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className={cn('h-full rounded-full transition-all duration-500', s.color)}
                     style={{ width: `${(s.value / Math.max(totalScenarios, 1)) * 100}%` }}
                   />
                 </div>
-                <span className="text-[10px] font-mono text-muted-foreground w-8 text-right">{s.value}</span>
+                <span className="text-[10px] font-mono font-bold text-muted-foreground w-8 text-right">{s.value}</span>
               </div>
             ))}
           </div>
@@ -118,12 +118,12 @@ export function TestPlanSummary() {
 
       {/* Coverage */}
       {automationCoverage > 0 && (
-        <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+        <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-500/5 border border-emerald-200 dark:border-emerald-500/20">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-emerald-400 uppercase tracking-wider font-semibold flex items-center gap-1">
-              <Zap className="h-3 w-3" /> Estimated Automation Coverage
+            <span className="text-[10px] text-emerald-800 dark:text-emerald-400 uppercase tracking-wider font-semibold flex items-center gap-1">
+              <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-400" /> Estimated Automation Coverage
             </span>
-            <span className="text-sm font-bold text-emerald-400">{automationCoverage}%</span>
+            <span className="text-sm font-bold text-emerald-800 dark:text-emerald-400">{automationCoverage}%</span>
           </div>
           <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div
@@ -131,7 +131,7 @@ export function TestPlanSummary() {
               style={{ width: `${automationCoverage}%` }}
             />
           </div>
-          <p className="text-[10px] text-muted-foreground mt-1.5">
+          <p className="text-[10px] font-medium text-muted-foreground mt-1.5">
             {automationCoverage >= 90 ? 'Excellent automation potential' : automationCoverage >= 70 ? 'Good automation coverage' : 'Moderate automation coverage'}
             {' — '}{totalScenarios - lowCount} of {totalScenarios} scenarios are automatable
           </p>

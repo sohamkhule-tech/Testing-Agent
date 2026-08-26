@@ -18,16 +18,16 @@ import {
 } from 'lucide-react';
 
 const priorityColors: Record<string, string> = {
-  critical: 'text-red-400 bg-red-500/15 border-red-500/30',
-  high: 'text-orange-400 bg-orange-500/15 border-orange-500/30',
-  medium: 'text-amber-400 bg-amber-500/15 border-amber-500/30',
-  low: 'text-muted-foreground bg-muted border-input',
+  critical: 'text-red-700 dark:text-red-400 bg-red-500/15 border-red-500/30 font-semibold',
+  high: 'text-orange-700 dark:text-orange-400 bg-orange-500/15 border-orange-500/30 font-semibold',
+  medium: 'text-amber-700 dark:text-amber-400 bg-amber-500/15 border-amber-500/30 font-semibold',
+  low: 'text-slate-700 dark:text-muted-foreground bg-secondary border-border font-medium',
 };
 
 const riskColors: Record<string, string> = {
-  high: 'text-red-400',
-  medium: 'text-amber-400',
-  low: 'text-emerald-400',
+  high: 'text-red-700 dark:text-red-400 font-semibold',
+  medium: 'text-amber-700 dark:text-amber-400 font-semibold',
+  low: 'text-emerald-700 dark:text-emerald-400 font-semibold',
 };
 
 function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
@@ -36,11 +36,11 @@ function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
   const hasFullDetails = Boolean(scenario.description);
 
   return (
-    <div className="rounded-xl border border-border bg-muted/80 hover:border-input transition-all duration-200 overflow-hidden">
+    <div className="rounded-xl border border-border bg-card shadow-2xs hover:border-border/80 transition-all duration-200 overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/60 transition-colors"
       >
         {expanded ? (
           <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -48,24 +48,24 @@ function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
           <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
         )}
 
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/15 text-blue-400 text-xs font-bold shrink-0">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/15 text-blue-700 dark:text-blue-400 text-xs font-bold shrink-0">
           {scenario.id.replace('TC-', '')}
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground truncate">{scenario.title}</p>
-          <p className="text-[10px] text-muted-foreground truncate">{scenario.module}</p>
+          <p className="text-sm font-semibold text-foreground truncate">{scenario.title}</p>
+          <p className="text-[10px] text-muted-foreground font-medium truncate">{scenario.module}</p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <span className={cn(
-            'text-[10px] px-2 py-0.5 rounded-full border font-medium',
+            'text-[10px] px-2 py-0.5 rounded-full border font-semibold',
             priorityColors[scenario.priority] ?? 'text-muted-foreground bg-muted border-input',
           )}>
             {scenario.priority}
           </span>
           <span className={cn(
-            'text-[10px] font-medium flex items-center gap-1',
+            'text-[10px] font-semibold flex items-center gap-1',
             riskColors[scenario.riskLevel] ?? 'text-muted-foreground',
           )}>
             <Shield className="h-3 w-3" />
@@ -83,18 +83,18 @@ function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1">
                 <Info className="h-3 w-3" /> Description
               </p>
-              <p className="text-xs text-foreground">{scenario.description}</p>
+              <p className="text-xs text-foreground font-medium">{scenario.description}</p>
             </div>
           )}
 
           {/* AI Reasoning */}
           {scenario.description && (
-            <div className="p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
-              <p className="text-[10px] text-violet-400 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1">
+            <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20">
+              <p className="text-[10px] text-violet-700 dark:text-violet-400 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1">
                 <Brain className="h-3 w-3" /> AI Reasoning
               </p>
-              <p className="text-[11px] text-violet-300/80">
-                This scenario was generated based on the <strong className="text-violet-200">{scenario.module}</strong> module.
+              <p className="text-[11px] text-violet-800 dark:text-violet-300 font-medium">
+                This scenario was generated based on the <strong className="text-violet-900 dark:text-violet-200">{scenario.module}</strong> module.
                 {scenario.priority === 'critical' && ' It covers a critical application flow that requires thorough validation.'}
                 {scenario.riskLevel === 'high' && ' High risk due to potential impact on core functionality.'}
                 {scenario.category === 'authentication' && ' Authentication scenarios ensure secure access control.'}

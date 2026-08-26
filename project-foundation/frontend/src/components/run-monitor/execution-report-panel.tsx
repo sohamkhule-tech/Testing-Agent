@@ -98,13 +98,13 @@ function StatCard({
   color: string;
 }) {
   return (
-    <div className="flex items-center gap-3 p-4 rounded-xl bg-muted border border-border">
+    <div className="flex items-center gap-3 p-4 rounded-xl bg-card border border-border shadow-2xs">
       <div className={cn('p-2 rounded-lg', color.replace('text-', 'bg-').replace('-400', '-500/15'))}>
         <Icon className={cn('h-4 w-4', color)} />
       </div>
       <div>
         <p className={cn('text-xl font-bold tabular-nums', color)}>{value}</p>
-        <p className="text-[11px] text-muted-foreground">{label}</p>
+        <p className="text-[11px] font-semibold text-muted-foreground">{label}</p>
       </div>
     </div>
   );
@@ -114,10 +114,10 @@ function PassRateRing({ passRate }: { passRate: number }) {
   const color = passRate >= 80 ? '#10b981' : passRate >= 50 ? '#f59e0b' : '#ef4444';
   const pct = Math.min(100, Math.max(0, passRate));
   return (
-    <div className="flex flex-col items-center justify-center p-5 rounded-xl bg-muted border border-border">
+    <div className="flex flex-col items-center justify-center p-5 rounded-xl bg-card border border-border shadow-2xs">
       <div className="relative h-20 w-20">
         <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
-          <circle cx="18" cy="18" r="15.9" fill="none" stroke="#27272a" strokeWidth="3.5" />
+          <circle cx="18" cy="18" r="15.9" fill="none" className="stroke-slate-200 dark:stroke-zinc-800" strokeWidth="3.5" />
           <circle
             cx="18" cy="18" r="15.9" fill="none"
             stroke={color}
@@ -132,7 +132,7 @@ function PassRateRing({ passRate }: { passRate: number }) {
           {Math.round(pct)}%
         </span>
       </div>
-      <p className="text-[11px] text-muted-foreground mt-2 font-medium">Pass Rate</p>
+      <p className="text-[11px] text-muted-foreground mt-2 font-semibold">Pass Rate</p>
     </div>
   );
 }

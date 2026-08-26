@@ -17,10 +17,10 @@ function ModuleCard({ module }: { module: ModuleInfo }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="rounded-xl border border-border bg-muted/80 overflow-hidden">
+    <div className="rounded-xl border border-border bg-card shadow-2xs overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/60 transition-colors"
       >
         {expanded ? (
           <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -28,20 +28,20 @@ function ModuleCard({ module }: { module: ModuleInfo }) {
           <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
         )}
 
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/20 shrink-0">
-          <Package className="h-4 w-4 text-violet-400" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15 shrink-0">
+          <Package className="h-4 w-4 text-violet-700 dark:text-violet-400" />
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground">{module.name}</p>
-          <p className="text-[10px] text-muted-foreground truncate">{module.description}</p>
+          <p className="text-sm font-semibold text-foreground">{module.name}</p>
+          <p className="text-[10px] text-muted-foreground font-medium truncate">{module.description}</p>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-xs font-mono text-muted-foreground">
+          <span className="text-xs font-mono font-semibold text-muted-foreground">
             {module.scenarioCount} <span className="text-[10px] text-muted-foreground">scenarios</span>
           </span>
-          <span className="text-xs font-mono text-muted-foreground">
+          <span className="text-xs font-mono font-semibold text-muted-foreground">
             {module.pages.length} <span className="text-[10px] text-muted-foreground">pages</span>
           </span>
         </div>
@@ -50,19 +50,19 @@ function ModuleCard({ module }: { module: ModuleInfo }) {
       {expanded && (
         <div className="px-4 pb-4 pt-2 border-t border-border space-y-3">
           {/* AI Reason */}
-          <div className="p-3 rounded-lg bg-violet-500/5 border border-violet-500/20">
-            <p className="text-[10px] text-violet-400 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1.5">
+          <div className="p-3 rounded-lg bg-violet-50 dark:bg-violet-500/5 border border-violet-200 dark:border-violet-500/20">
+            <p className="text-[10px] text-violet-700 dark:text-violet-400 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1.5">
               <Shield className="h-3 w-3" /> Why this module?
             </p>
-            <p className="text-[11px] text-violet-300/80">
+            <p className="text-[11px] text-violet-800 dark:text-violet-300 font-medium">
               {module.description || `Detected because the application contains pages and components that serve the ${module.name.toLowerCase()} functionality.`}
             </p>
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-[10px] text-muted-foreground">Confidence</span>
+              <span className="text-[10px] text-muted-foreground font-medium">Confidence</span>
               <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden max-w-[100px]">
-                <div className="h-full rounded-full bg-violet-500" style={{ width: `${85 + module.moduleIndex * 3}%` }} />
+                <div className="h-full rounded-full bg-violet-600 dark:bg-violet-500" style={{ width: `${85 + module.moduleIndex * 3}%` }} />
               </div>
-              <span className="text-[10px] font-mono text-violet-400">{85 + module.moduleIndex * 3}%</span>
+              <span className="text-[10px] font-mono font-bold text-violet-700 dark:text-violet-400">{85 + module.moduleIndex * 3}%</span>
             </div>
           </div>
 

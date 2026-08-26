@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertCircle, Search, LayoutGrid, TestTube, GitPullRequest, Code2, FlaskConical,
-  Eye, EyeOff, Sparkles, Zap, ExternalLink, Lock,
+  Eye, EyeOff, Sparkles, Zap, ExternalLink, Lock, Wand2, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -21,11 +21,12 @@ import { WorkflowTimeline } from '@/components/project/workflow-timeline';
 import { RunList } from '@/components/project/run-list';
 import { ProjectDetails } from '@/components/project/project-details';
 import { PromptAnalysisPanel } from '@/components/project/prompt-analysis-panel';
+import { PromptOptimizationPreview } from '@/components/project/prompt-optimization-preview';
 import {
   useProject, useProjectStats, useProjectRuns, useDeleteProject, useCreateRun, useApproveRun,
-  useProjectPrompt, useSaveProjectPrompt, useAnalyzePrompt,
+  useProjectPrompt, useSaveProjectPrompt, useAnalyzePrompt, useOptimizePrompt, useModels,
 } from '@/hooks/use-api';
-import type { ParsedPromptIntent, PromptAnalysis } from '@/types/api';
+import type { ParsedPromptIntent, PromptAnalysis, OptimizePromptResponse } from '@/types/api';
 
 const STORAGE_KEY = (id: string) => `ai-test-prompt:${id}`;
 const MAX_PROMPT_CHARS = 10000;
@@ -42,10 +43,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [credUsername, setCredUsername] = useState('');
   const [credPassword, setCredPassword] = useState('');
   const [credLoginUrl, setCredLoginUrl] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
 
   // Transparency: analysis state
   const [analysis, setAnalysis] = useState<PromptAnalysis | null>(null);
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
+
+  // Optimization state
+  const [optimizedData, setOptimizedData] = useState<OptimizePromptResponse | null>(null);
 
   const { data: project, isLoading, error } = useProject(id);
   const { data: stats } = useProjectStats(id);
@@ -56,6 +61,31 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const approveRun = useApproveRun();
   const savePrompt = useSaveProjectPrompt();
   const analyzePrompt = useAnalyzePrompt();
+  const optimizePrompt = useOptimizePrompt();
+  const { data: modelsData } = useModels();
+
+  useEffect(() => {
+    if (!selectedModel && modelsData?.defaultModel) {
+      setSelectedModel(modelsData.defaultModel);
+    }
+  }, [modelsData, selectedModel]);
+
+  const handleOptimizePrompt = () => {
+    if (!userPrompt.trim()) {
+      toast.error('Please enter a prompt to optimize');
+      return;
+    }
+    optimizePrompt.mutate({ prompt: userPrompt, model: selectedModel || modelsData?.defaultModel }, {
+      onSuccess: (data) => {
+        setOptimizedData(data);
+        toast.success('Prompt optimized! Review changes below.');
+      },
+      onError: (err: any) => {
+        const errorMsg = err?.response?.data?.detail || err?.message || 'Unable to optimize the prompt right now. Please try again.';
+        toast.error(errorMsg);
+      },
+    });
+  };
 
   // Restore from localStorage on mount, then fall back to project default
   useEffect(() => {
@@ -122,7 +152,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   /** Called from both "Approve & Start Run" (in panel) and direct "Start Run" (skip analysis). */
   const handleStartRun = (promptOverride?: string) => {
     const finalPrompt = promptOverride ?? buildFinalPrompt();
-    createRun.mutate({ projectId: id, userPrompt: finalPrompt || undefined }, {
+    createRun.mutate({ projectId: id, userPrompt: finalPrompt || undefined, model: selectedModel || modelsData?.defaultModel }, {
       onSuccess: (data) => {
         if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY(id));
         toast.success('Run started');
@@ -136,7 +166,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const handleAnalyzePrompt = () => {
     const finalPrompt = buildFinalPrompt();
     analyzePrompt.mutate(
-      { projectId: id, userPrompt: finalPrompt },
+      { projectId: id, userPrompt: finalPrompt, model: selectedModel || modelsData?.defaultModel },
       {
         onSuccess: (data) => {
           setAnalysis(data);
@@ -252,6 +282,28 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           {/* Textarea — hidden when analysis panel is open */}
           {!showAnalysisPanel && (
             <>
+              <div className="grid gap-2 sm:grid-cols-[minmax(220px,320px)_1fr] sm:items-end">
+                <div>
+                  <label className="text-[11px] text-muted-foreground block mb-1 uppercase tracking-wider">AI Model</label>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    disabled={!modelsData?.models?.length || !!hasRunningRun}
+                    className="w-full px-3 py-2 rounded-lg bg-muted border border-input text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
+                  >
+                    {(modelsData?.models ?? []).map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name} ({model.provider})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {latestRun?.ai_model && (
+                  <div className="text-[11px] text-muted-foreground sm:text-right">
+                    Last run model: <span className="font-medium text-foreground">{latestRun.ai_model}</span>
+                  </div>
+                )}
+              </div>
               <textarea
                 value={userPrompt}
                 onChange={(e) => handlePromptChange(e.target.value)}
@@ -260,13 +312,49 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                 className="w-full px-3 py-2 rounded-lg bg-muted border border-input text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50 min-h-[100px] resize-y font-mono"
               />
               <div className="flex items-center justify-between">
-                <p className="text-[11px] text-muted-foreground">
-                  Tell the AI what to test. Leave empty for automatic generation.
-                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOptimizePrompt}
+                    disabled={!userPrompt.trim() || optimizePrompt.isPending || !!hasRunningRun}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-600/20 text-xs font-semibold disabled:opacity-40 transition-all shadow-sm"
+                  >
+                    {optimizePrompt.isPending ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Optimizing prompt...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+                        <span>Optimize Prompt</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[11px] text-muted-foreground hidden sm:block">
+                    Transform prompt into a structured AI instruction.
+                  </p>
+                </div>
                 <span className={`text-[11px] ${charWarning ? 'text-amber-400' : 'text-muted-foreground'}`}>
                   {charCount.toLocaleString()} / {MAX_PROMPT_CHARS.toLocaleString()}
                 </span>
               </div>
+
+              {/* Non-destructive Optimization Preview */}
+              {optimizedData && (
+                <PromptOptimizationPreview
+                  originalPrompt={optimizedData.originalPrompt}
+                  optimizedPrompt={optimizedData.optimizedPrompt}
+                  usage={optimizedData.usage}
+                  model={optimizedData.model}
+                  onUseOptimized={(text) => {
+                    handlePromptChange(text);
+                    setOptimizedData(null);
+                    toast.success('Optimized prompt applied to instructions!');
+                  }}
+                  onKeepOriginal={() => setOptimizedData(null)}
+                />
+              )}
 
               {/* Structured credentials */}
               <div>
