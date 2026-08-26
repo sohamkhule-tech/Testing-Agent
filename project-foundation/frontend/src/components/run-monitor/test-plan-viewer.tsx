@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useWorkflowStore } from '@/store/workflow-store';
+import { toast } from 'sonner';
 import {
   ClipboardList,
   CheckCircle2,
@@ -234,6 +235,10 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
   const [searchTerm, setSearchTerm]   = useState('');
   const [filterPriority, setFilterPriority] = useState<ReviewFilter>('all');
   const [expandedScenarios, setExpandedScenarios] = useState<Set<string>>(new Set());
+  // Selective approval: stable test-case ID selection, independent of the
+  // scenario data itself. Survives filter/search changes.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
 
   const isCompleted = overallStatus === 'completed' || codeGenStage?.status === 'completed' || reviewStage?.status === 'completed';
   const isActive = required || reviewStage?.status === 'waiting_for_user' || testPlanReady || isCompleted;
@@ -274,6 +279,44 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
     });
   };
 
+  // ── Selective approval (stable IDs, filter-aware) ─────────────────────────
+  const visibleIds = filteredScenarios.map((s) => s.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+  const selectedCount = selectedIds.size;
+
+  const headerCheckboxRef = React.useRef<HTMLInputElement>(null);
+  React.useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+    }
+  }, [someVisibleSelected, allVisibleSelected]);
+
+  const toggleSelect = (id: string) => {
+    // Selecting a checkbox never mutates the scenario data itself.
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    // Select All applies ONLY to the currently visible/filtered set; selections
+    // of hidden rows are preserved. Unchecking clears the visible selections.
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
   if (!isActive) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
@@ -284,19 +327,41 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
   }
 
   const handleApprove = async () => {
+    const toApprove = Array.from(selectedIds);
+    if (toApprove.length === 0 || submitting) return;
     setSubmitting(true);
-    setDecision('approved');
     try {
       const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
       const res = await fetch(`${apiBase}/api/v1/runs/${runId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ test_case_ids: toApprove }),
       });
-      if (!res.ok && res.status !== 400) {
-        console.warn(`Approve response status: ${res.status}`);
+      if (!res.ok) {
+        let detail = `Approve request failed (${res.status})`;
+        try {
+          const err = await res.json();
+          if (err?.detail) detail = String(err.detail);
+        } catch {
+          // non-JSON error body — keep HTTP fallback message
+        }
+        console.warn(detail);
+        toast.error(detail);
+        return; // selection preserved — backend approved nothing
       }
+      const data = await res.json().catch(() => null);
+      const approvedIdsResult = (data?.approved_test_case_ids as string[] | undefined) ?? toApprove;
+      setApprovedIds((prev) => {
+        const next = new Set(prev);
+        approvedIdsResult.forEach((id) => next.add(id));
+        return next;
+      });
+      setSelectedIds(new Set());
+      setDecision('approved');
+      toast.success(`Approved ${approvedIdsResult.length} test case${approvedIdsResult.length !== 1 ? 's' : ''}`);
     } catch (e) {
       console.error('Approve failed:', e);
+      toast.error('Approval failed. Your selection was preserved.');
     } finally {
       setSubmitting(false);
     }
@@ -381,7 +446,9 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
             : 'border-red-500/50 bg-red-500/10 text-red-400'
         )}>
           {decision === 'approved' ? <ThumbsUp className="h-4 w-4" /> : <ThumbsDown className="h-4 w-4" />}
-          Review {decision === 'approved' ? 'Approved' : 'Rejected'} &mdash; Workflow continuing...
+          Review {decision === 'approved'
+            ? (approvedIds.size > 0 ? `${approvedIds.size} of ${scenarioCount} scenarios approved` : 'Approved')
+            : 'Rejected'} &mdash; Workflow continuing...
         </div>
       )}
 
@@ -472,6 +539,16 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-muted">
               <tr className="text-muted-foreground text-left">
+                <th className="py-2 px-2 font-medium w-8">
+                  <input
+                    ref={headerCheckboxRef}
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAll}
+                    title={allVisibleSelected ? 'Clear selection' : 'Select all visible test cases'}
+                    className="accent-emerald-500"
+                  />
+                </th>
                 <th className="py-2 px-3 font-medium w-20">ID</th>
                 <th className="py-2 px-3 font-medium">Title</th>
                 <th className="py-2 px-3 font-medium w-20">Priority</th>
@@ -482,14 +559,35 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
             <tbody className="divide-y divide-border">
               {filteredScenarios.map((sc) => {
                 const isExpanded = expandedScenarios.has(sc.id);
+                const isSelected = selectedIds.has(sc.id);
+                const isApproved = approvedIds.has(sc.id);
                 return (
                   <React.Fragment key={sc.id}>
                     <tr
                       className="hover:bg-accent cursor-pointer transition-colors"
                       onClick={() => toggleExpand(sc.id)}
                     >
+                      <td className="py-1.5 px-2 w-8" onClick={(e) => e.stopPropagation()}>
+                        {isApproved ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" aria-label="Approved" />
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(sc.id)}
+                            className="accent-emerald-500"
+                          />
+                        )}
+                      </td>
                       <td className="py-1.5 px-3 font-mono text-muted-foreground">{sc.id}</td>
-                      <td className="py-1.5 px-3 text-foreground">{sc.title}</td>
+                      <td className="py-1.5 px-3 text-foreground">
+                        {sc.title}
+                        {approvedIds.size > 0 && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-semibold uppercase">
+                            Approved
+                          </span>
+                        )}
+                      </td>
                       <td className="py-1.5 px-3"><PriorityBadge p={sc.priority} /></td>
                       <td className="py-1.5 px-3"><CategoryBadge c={sc.category || 'functional'} /></td>
                       <td className="py-1.5 px-3 text-muted-foreground">
@@ -498,7 +596,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
                     </tr>
                     {isExpanded && (
                       <tr className="bg-muted/50">
-                        <td colSpan={5} className="px-4 py-3">
+                        <td colSpan={6} className="px-4 py-3">
                           <div className="text-xs space-y-2">
                             <div className="flex gap-4 text-muted-foreground">
                               <span>Module: <span className="text-foreground">{sc.module || '-'}</span></span>
@@ -536,7 +634,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
           <div className="flex gap-3">
             <button
               onClick={handleApprove}
-              disabled={submitting || isCompleted}
+              disabled={submitting || isCompleted || selectedCount === 0}
               className={cn(
                 "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors",
                 isCompleted
@@ -551,7 +649,11 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
               ) : (
                 <ThumbsUp className="h-4 w-4" />
               )}
-              {isCompleted ? 'Approved' : 'Approve & Continue'}
+              {isCompleted
+                ? 'Approved'
+                : selectedCount > 0
+                ? `Approve Selected (${selectedCount})`
+                : 'Approve Selected'}
             </button>
             <button
               onClick={handleRejectClick}
@@ -590,7 +692,9 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
           decision === 'approved' ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400' : 'border-red-500/50 bg-red-500/10 text-red-400'
         )}>
           {decision === 'approved' ? <ThumbsUp className="h-4 w-4" /> : <ThumbsDown className="h-4 w-4" />}
-          Review {decision === 'approved' ? 'Approved' : 'Rejected'} &mdash; Workflow continuing...
+          Review {decision === 'approved'
+            ? (approvedIds.size > 0 ? `${approvedIds.size} of ${scenarioCount} scenarios approved` : 'Approved')
+            : 'Rejected'} &mdash; Workflow continuing...
         </div>
       )}
 

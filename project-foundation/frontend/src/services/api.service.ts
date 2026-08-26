@@ -105,9 +105,13 @@ export const runsService = {
     return apiClient.post<void>(`/api/v1/runs/${id}/cancel`);
   },
 
-  // Approve run (continue to code generation)
-  approve: async (id: string): Promise<any> => {
-    return apiClient.post<any>(`/api/v1/runs/${id}/approve`);
+  // Approve run (continue to code generation). Optionally approve ONLY the
+  // given test-case IDs (selective approval); omit test_case_ids to approve
+  // the whole plan (legacy behaviour).
+  approve: async (id: string, testCaseIds?: string[]): Promise<any> => {
+    return apiClient.post<any>(`/api/v1/runs/${id}/approve`, {
+      test_case_ids: testCaseIds,
+    });
   },
 
   // Resume / retry a failed run

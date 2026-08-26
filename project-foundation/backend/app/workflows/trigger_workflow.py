@@ -745,20 +745,48 @@ async def human_review_node(state: PlatformWorkflowState) -> PlatformWorkflowSta
 
         human_review_service = get_human_review_service()
 
-        # Build review request with auto-approve
-        review_request = ReviewRequest(
-            run_id=state.run_id,
-            reviewer_name=state.requested_by or "system",
-            reviewer_email=f"{state.requested_by or 'system'}@example.com",
-            auto_approve=True,  # Auto-approve for now
-            general_comments="Auto-approved by system",
-        )
-
-        # Process review
-        result = await human_review_service.review_test_plan(
-            workspace_path=state.workspace_path or "",
-            review_request=review_request,
-        )
+        # A review decision may already be persisted for this run (e.g. from
+        # the selective POST /approve endpoint, or a resumed workflow). The
+        # persisted review is the source of truth — NEVER re-run the approval,
+        # which would overwrite a partial approval (e.g. 4 approved) with a
+        # full auto-approval (all scenarios) once the post-review workflow
+        # re-executes this node.
+        persisted_review = await _load_persisted_review(state.workspace_path or "")
+        if persisted_review is not None:
+            logger.info(
+                "human_review_persisted_review_found",
+                run_id=state.run_id,
+                review_status=persisted_review.get("review_status"),
+                approved_scenarios=persisted_review.get("approved_scenarios"),
+                rejected_scenarios=persisted_review.get("rejected_scenarios"),
+                total_scenarios=persisted_review.get("total_scenarios"),
+            )
+            logger.info(
+                "human_review_reapproval_skipped",
+                run_id=state.run_id,
+                reason="persisted review already exists — reusing it",
+            )
+            result = persisted_review
+        else:
+            # No persisted decision yet → auto-approve (pre-review behaviour).
+            review_request = ReviewRequest(
+                run_id=state.run_id,
+                reviewer_name=state.requested_by or "system",
+                reviewer_email=f"{state.requested_by or 'system'}@example.com",
+                auto_approve=True,  # Auto-approve for now
+                general_comments="Auto-approved by system",
+            )
+            result = await human_review_service.review_test_plan(
+                workspace_path=state.workspace_path or "",
+                review_request=review_request,
+            )
+            logger.info(
+                "human_review_auto_approve_executed",
+                run_id=state.run_id,
+                review_status=result.get("review_status"),
+                approved_scenarios=result.get("approved_scenarios"),
+                total_scenarios=result.get("total_scenarios"),
+            )
 
         # Update state
         state.review_status = result.get("review_status")
@@ -909,10 +937,37 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
             else None
         )
 
+        # Selective approval scoping: when the Human Review is PARTIAL, feed
+        # Code Generation ONLY the approved scenarios via a scoped COPY of the
+        # approved plan (the persisted plan is never mutated). If nothing is
+        # approved, do NOT start Code Generation / Test Execution.
+        from app.dependencies import get_human_review_service as _get_hrs
+        _approved_plan_path = await _get_hrs().resolve_codegen_test_plan_path(
+            workspace_path=state.workspace_path,
+            canonical_path=state.approved_test_plan_path,
+        )
+        if _approved_plan_path is None:
+            logger.warning("codegen_skipped_no_approved_scenarios", run_id=state.run_id)
+            await emit(state.run_id, EventType.STAGE_SKIPPED, {
+                "stage": "code_generation",
+                "label": "Code Generation skipped — no approved test scenarios",
+                "message": "No test scenarios are approved. Awaiting human review approval.",
+            })
+            state.code_generation_status = "awaiting_review"
+            state.status = RunStatus.PAUSED
+            return state
+
+        logger.info(
+            "codegen_approved_plan_resolved",
+            run_id=state.run_id,
+            approved_plan_path=_approved_plan_path,
+            scoped=_approved_plan_path != state.approved_test_plan_path,
+        )
+
         input_data = {
             "run_id": state.run_id,
             "workspace_path": state.workspace_path,
-            "approved_test_plan_path": state.approved_test_plan_path,
+            "approved_test_plan_path": _approved_plan_path,
             "base_url": _base_url,
             "model": state.selected_model,
             "output_preferences": _output_prefs,
@@ -926,7 +981,8 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         logger.info("code_generation_step_2_complete",
                    run_id=state.run_id,
                    workspace_path=state.workspace_path,
-                   approved_plan=state.approved_test_plan_path,
+                   approved_plan=_approved_plan_path,
+                   scoped=_approved_plan_path != state.approved_test_plan_path,
                    duration=time.time() - step_start)
 
         # STEP 3: Execute code generation with timeout
@@ -1960,6 +2016,43 @@ async def execute_platform_workflow(
     return _build_pre_review_result(final_state, str(run_id), status)
 
 
+async def _load_persisted_review(workspace_path: str) -> dict[str, Any] | None:
+    """Load the review already recorded for a run (e.g. a selective approval).
+
+    Returns a dict shaped like ``HumanReviewService.review_test_plan``'s result
+    (the subset consumed by ``continue_platform_workflow``), or ``None`` when no
+    review metadata exists yet (legacy fallback → auto-approve).
+
+    This preserves partial/selective approvals: the post-review workflow must
+    NOT overwrite a reviewer's decisions with a blanket auto-approval.
+    """
+    contracts = Path(workspace_path) / "contracts"
+    metadata_path = contracts / "review-metadata.json"
+    if not metadata_path.exists():
+        return None
+
+    from app.utils import load_file
+    try:
+        metadata = await load_file(metadata_path)
+    except Exception:
+        return None
+    if not isinstance(metadata, dict):
+        return None
+
+    return {
+        "review_status": metadata.get("review_status"),
+        "review_decision": metadata.get("decision"),
+        "review_version": metadata.get("review_version", 1),
+        "reviewer_name": metadata.get("reviewer_name"),
+        "approved_test_plan_path": str(contracts / "approved-test-plan.json"),
+        "approved_test_plan_md_path": str(contracts / "approved-test-plan.md"),
+        "review_metadata_path": str(metadata_path),
+        "approved_scenarios": metadata.get("approved_scenarios", 0),
+        "rejected_scenarios": metadata.get("rejected_scenarios", 0),
+        "total_scenarios": metadata.get("total_scenarios", 0),
+    }
+
+
 async def continue_platform_workflow(
     run_id: str, workspace_path: str, requested_by: str | None = None,
     code_generation_agent: CodeGenerationAgent | None = None,
@@ -2022,12 +2115,18 @@ async def continue_platform_workflow(
     initial_state.test_plan_path = f"{workspace_path}/contracts/test-plan.json"
 
     review_service = get_human_review_service()
-    review_request = ReviewRequest(
-        run_id=UUID(run_id), reviewer_name=reviewer_name or "user",
-        reviewer_email="user@example.com", auto_approve=True,
-        general_comments="Approved by user",
-    )
-    review_result = await review_service.review_test_plan(workspace_path=workspace_path, review_request=review_request)
+    # Preserve the review already recorded for this run (e.g. a selective
+    # approval). Only synthesize an auto-approved review when NO review exists
+    # yet (legacy fallback for resumes/crashes) so a partial approval is never
+    # overwritten into a full approval by the post-review workflow.
+    review_result = await _load_persisted_review(workspace_path)
+    if review_result is None:
+        review_request = ReviewRequest(
+            run_id=UUID(run_id), reviewer_name=reviewer_name or "user",
+            reviewer_email="user@example.com", auto_approve=True,
+            general_comments="Approved by user",
+        )
+        review_result = await review_service.review_test_plan(workspace_path=workspace_path, review_request=review_request)
     for k in ("review_status","review_decision","review_version","reviewer_name",
               "approved_test_plan_path","approved_test_plan_md_path","review_metadata_path",
               "approved_scenarios","rejected_scenarios","total_scenarios"):

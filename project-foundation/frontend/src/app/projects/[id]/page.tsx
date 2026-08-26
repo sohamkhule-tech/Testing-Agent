@@ -183,7 +183,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const handleDeleteClick = () => setShowDelete(true);
   const handleApprove = () => {
     if (latestRun) {
-      approveRun.mutate(latestRun.run_id, {
+      approveRun.mutate({ id: latestRun.run_id }, {
         onSuccess: () => toast.success('Test plan approved! Generating tests...'),
         onError: () => toast.error('Failed to approve test plan'),
       });

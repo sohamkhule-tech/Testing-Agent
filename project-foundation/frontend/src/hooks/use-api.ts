@@ -167,9 +167,10 @@ export function useCreateRun() {
 export function useApproveRun() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => runsService.approve(id),
-    onSuccess: (_data, id) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.run(id) });
+    mutationFn: ({ id, testCaseIds }: { id: string; testCaseIds?: string[] }) =>
+      runsService.approve(id, testCaseIds),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.run(variables.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs });
     },
   });

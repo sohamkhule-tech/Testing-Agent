@@ -432,3 +432,125 @@ async def test_general_comments_in_metadata(review_service, workspace_with_test_
     assert metadata_data["approval_summary"] == comment_text
     assert len(metadata_data["general_comments"]) == 1
     assert metadata_data["general_comments"][0]["comment_text"] == comment_text
+
+
+# ---------------------------------------------------------------------------
+# Selective approval (per-test-case) regression tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_approved_plus_pending_is_partial_not_full(review_service, workspace_with_test_plan):
+    """Approving a subset while others stay PENDING must be PARTIALLY_APPROVED.
+
+    The presence of unapproved scenarios must never flip the review to
+    APPROVED merely because some test cases were approved.
+    """
+    review_request = ReviewRequest(
+        run_id=str(uuid4()),
+        reviewer_name="test_reviewer",
+        reviewer_email="reviewer@example.com",
+        auto_approve=False,
+        scenario_decisions={
+            "TC001": ScenarioReviewStatus.APPROVED,
+            "TC002": ScenarioReviewStatus.PENDING,
+            "TC003": ScenarioReviewStatus.PENDING,
+        },
+    )
+
+    result = await review_service.review_test_plan(
+        workspace_path=str(workspace_with_test_plan),
+        review_request=review_request,
+    )
+
+    assert result["review_status"] == ReviewStatus.PARTIALLY_APPROVED.value
+    assert result["review_decision"] == ReviewDecision.PARTIAL_APPROVAL.value
+    assert result["approved_scenarios"] == 1
+    assert result["total_scenarios"] == 3
+
+
+@pytest.mark.asyncio
+async def test_approve_selected_marks_only_selected(review_service, workspace_with_test_plan):
+    """approve_selected_scenarios approves ONLY the requested IDs and persists
+    per-scenario review state (selected approved, others pending)."""
+    from uuid import uuid4 as _uuid4
+
+    result = await review_service.approve_selected_scenarios(
+        workspace_path=str(workspace_with_test_plan),
+        run_id=_uuid4(),
+        reviewer_name="test_reviewer",
+        scenario_ids=["TC001"],
+    )
+
+    assert result["review_status"] == ReviewStatus.PARTIALLY_APPROVED.value
+    assert result["approved_scenarios"] == 1
+    assert result["total_scenarios"] == 3
+    assert result["approved_test_case_ids"] == ["TC001"]
+
+    # Persisted per-scenario review state: TC001 approved, others pending.
+    approved_plan_path = Path(result["approved_test_plan_path"])
+    approved_data = json.loads(approved_plan_path.read_text(encoding="utf-8"))
+    reviews = approved_data["scenario_reviews"]
+    assert reviews["TC001"]["status"] == "approved"
+    assert reviews["TC002"]["status"] == "pending"
+    assert reviews["TC003"]["status"] == "pending"
+
+    metadata_data = json.loads(Path(result["review_metadata_path"]).read_text(encoding="utf-8"))
+    assert metadata_data["review_status"] == "partially_approved"
+    assert metadata_data["approved_scenarios"] == 1
+    assert metadata_data["total_scenarios"] == 3
+
+
+@pytest.mark.asyncio
+async def test_approve_selected_multiple_ids(review_service, workspace_with_test_plan):
+    from uuid import uuid4 as _uuid4
+
+    result = await review_service.approve_selected_scenarios(
+        workspace_path=str(workspace_with_test_plan),
+        run_id=_uuid4(),
+        reviewer_name="test_reviewer",
+        scenario_ids=["TC001", "TC003"],
+    )
+
+    assert result["approved_scenarios"] == 2
+    assert sorted(result["approved_test_case_ids"]) == ["TC001", "TC003"]
+
+    approved_data = json.loads(Path(result["approved_test_plan_path"]).read_text(encoding="utf-8"))
+    reviews = approved_data["scenario_reviews"]
+    assert reviews["TC001"]["status"] == "approved"
+    assert reviews["TC002"]["status"] == "pending"
+    assert reviews["TC003"]["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_approve_selected_all_ids_is_fully_approved(review_service, workspace_with_test_plan):
+    """Selecting every scenario = full approval (compatible with legacy)."""
+    from uuid import uuid4 as _uuid4
+
+    result = await review_service.approve_selected_scenarios(
+        workspace_path=str(workspace_with_test_plan),
+        run_id=_uuid4(),
+        reviewer_name="test_reviewer",
+        scenario_ids=["TC001", "TC002", "TC003"],
+    )
+
+    assert result["review_status"] == ReviewStatus.APPROVED.value
+    assert result["approved_scenarios"] == 3
+
+
+@pytest.mark.asyncio
+async def test_approve_selected_rejects_unknown_ids(review_service, workspace_with_test_plan):
+    """IDs not belonging to the run's test plan are rejected safely (no writes)."""
+    from uuid import uuid4 as _uuid4
+
+    with pytest.raises(ValidationError, match="do not belong"):
+        await review_service.approve_selected_scenarios(
+            workspace_path=str(workspace_with_test_plan),
+            run_id=_uuid4(),
+            reviewer_name="test_reviewer",
+            scenario_ids=["TC001", "NOT-A-SCENARIO"],
+        )
+
+    # Nothing was persisted on a rejected request.
+    assert not (workspace_with_test_plan / "contracts" / "approved-test-plan.json").exists()
+    assert not (workspace_with_test_plan / "contracts" / "review-metadata.json").exists()

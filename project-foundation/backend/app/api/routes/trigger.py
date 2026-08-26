@@ -3,6 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 
 from app.agents import CrawlerAgent, TriggerAgent
 from app.dependencies import get_code_generation_agent, get_crawler_agent, get_project_service, get_test_design_agent, get_trigger_agent, get_trigger_service
@@ -511,6 +512,16 @@ async def _run_post_review_workflow(
             await ts.update_status(run_id, RS.COMPLETED, stage="completed", message="Workflow completed successfully")
             await _emit(run_id_str, EventType.WORKFLOW_COMPLETED, {"run_id": run_id_str})
             await _finalize_project_stats(run_id, "completed")
+        elif result.get("status") == "paused" or result.get("code_generation_status") == "awaiting_review":
+            # No approved test scenarios under the persisted review — park the
+            # run for another human review instead of reporting a failure.
+            await ts.update_status(
+                run_id, RS.PAUSED, stage="human_review",
+                message="Awaiting human review approval — no approved test scenarios.",
+            )
+            await _emit(run_id_str, EventType.WORKFLOW_PAUSED, {
+                "run_id": run_id_str, "stage": "human_review",
+            })
         else:
             errors = "; ".join(result.get("errors", []))
             await ts.update_status(run_id, RS.FAILED, stage="failed", message=errors)
@@ -551,15 +562,36 @@ def _release_post_review(run_id: str) -> None:
     _post_review_busy.discard(run_id)
 
 
+class _ApproveRunRequest(BaseModel):
+    """Optional body for POST /runs/{run_id}/approve.
+
+    When ``test_case_ids`` is provided, ONLY those test cases are approved;
+    every other scenario in the run's test plan stays pending (partial review).
+    Omitting the body (or sending no ``test_case_ids``) preserves the legacy
+    approve-the-entire-plan behaviour.
+    """
+
+    test_case_ids: list[str] | None = Field(
+        default=None,
+        description="Scenario/test-case IDs to approve. None = approve all.",
+    )
+
+
 @router.post(
     "/{run_id}/approve",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Approve test plan and continue workflow",
-    description="Approves the test plan and kicks off Code Generation in a background task. Returns 202 immediately.",
+    summary="Approve test plan (optionally a subset) and continue workflow",
+    description=(
+        "Approves the test plan and kicks off Code Generation in a background "
+        "task. Returns 202 immediately. When the body contains test_case_ids, "
+        "ONLY those test cases are approved and every other scenario remains "
+        "pending (partial approval); an empty body approves the whole plan."
+    ),
 )
 async def approve_run(
     run_id: UUID,
     service: TriggerService = Depends(get_trigger_service),
+    payload: _ApproveRunRequest | None = None,
 ) -> dict:
     from app.constants import RunStatus as RS
     try:
@@ -577,6 +609,30 @@ async def approve_run(
                 detail=f"Run status is '{entity.status}'. Workflow is not awaiting review."
             )
 
+        # ── Selective approval: approve ONLY the requested test-case IDs ─────
+        requested_ids = payload.test_case_ids if (payload and payload.test_case_ids is not None) else None
+        review_summary: dict | None = None
+        if requested_ids is not None:
+            if len(requested_ids) == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="No test cases selected for approval.",
+                )
+            from app.dependencies import get_human_review_service
+            human_review_service = get_human_review_service()
+            try:
+                review_summary = await human_review_service.approve_selected_scenarios(
+                    workspace_path=entity.workspace_path,
+                    run_id=run_id,
+                    reviewer_name=entity.requested_by or "user",
+                    scenario_ids=requested_ids,
+                )
+            except ValidationError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=str(exc),
+                ) from exc
+
         # Idempotency: if a post-review task is already in flight for this
         # run (e.g. double-click Approve or a retried HTTP POST), do not spawn
         # a second code-generation + execution pipeline.
@@ -589,7 +645,15 @@ async def approve_run(
                 "message": "Code generation is already in progress for this run."
             }
 
-        await service.update_status(run_id, RS.RUNNING, stage="human_review", message="Review approved. Code generation starting in background.")
+        message = "Review approved. Code generation starting in background."
+        if review_summary is not None:
+            approved_count = len(review_summary.get("approved_test_case_ids") or [])
+            total_count = review_summary.get("total_scenarios") or 0
+            message = (
+                f"Approved {approved_count} of {total_count} test cases. "
+                "Code generation starting in background."
+            )
+        await service.update_status(run_id, RS.RUNNING, stage="human_review", message=message)
         code_gen_agent = get_code_generation_agent()
 
         import asyncio
@@ -605,7 +669,20 @@ async def approve_run(
                 logger.error("post_review_task_unhandled_exception", run_id=str(run_id), error=str(exc))
         task.add_done_callback(_on_task_done)
 
-        return {"run_id": str(run_id), "status": "running", "message": "Code generation started in background. Poll /state or stream /events for progress."}
+        response: dict = {
+            "run_id": str(run_id),
+            "status": "running",
+            "message": message,
+        }
+        if review_summary is not None:
+            response.update({
+                "approved_test_case_ids": review_summary.get("approved_test_case_ids") or [],
+                "review_status": review_summary.get("review_status"),
+                "review_decision": review_summary.get("review_decision"),
+                "approved_scenarios": review_summary.get("approved_scenarios"),
+                "total_scenarios": review_summary.get("total_scenarios"),
+            })
+        return response
     except NotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Run not found: {run_id}")
     except HTTPException:
