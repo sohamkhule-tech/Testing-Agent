@@ -104,7 +104,7 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
               <p className="text-sm font-semibold text-red-300">{stageLabel} Failed</p>
             </div>
             {failureLoading ? (
-              <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 Loading failure details...
               </div>
@@ -113,7 +113,7 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
                 {failure?.failure_reason && (
                   <p className="text-xs text-red-400/80 mt-1 break-all line-clamp-3">{failure.failure_reason}</p>
                 )}
-                <div className="flex items-center gap-3 mt-2 text-[10px] text-zinc-500">
+                <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
                   {failure?.retry_count !== undefined && failure.retry_count > 0 && (
                     <span>Retried {failure.retry_count} time{failure.retry_count !== 1 ? 's' : ''}</span>
                   )}
@@ -125,17 +125,17 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
 
         {/* Stacktrace (collapsible) */}
         {failure?.failure_stacktrace?.length! > 0 && (
-          <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          <div className="rounded-lg border border-border overflow-hidden">
             <button
               onClick={() => setShowStacktrace(!showStacktrace)}
-              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               {showStacktrace ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               <Bug className="h-3 w-3" />
               Full Stack Trace
             </button>
             {showStacktrace && (
-              <div className="px-3 pb-3 font-mono text-[10px] text-zinc-400 max-h-48 overflow-y-auto space-y-0.5 bg-zinc-950/50">
+              <div className="px-3 pb-3 font-mono text-[10px] text-muted-foreground max-h-48 overflow-y-auto space-y-0.5 bg-card">
                 {failure!.failure_stacktrace.map((line, i) => (
                   <div key={i} className="text-red-400/70">{line}</div>
                 ))}
@@ -146,17 +146,17 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
 
         {/* Stage logs (collapsible) */}
         {failure?.stage_logs?.length! > 0 && (
-          <div className="rounded-lg border border-zinc-800 overflow-hidden">
+          <div className="rounded-lg border border-border overflow-hidden">
             <button
               onClick={() => setShowLogs(!showLogs)}
-              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               {showLogs ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               <Terminal className="h-3 w-3" />
               Stage Logs ({failure!.stage_logs.length} lines)
             </button>
             {showLogs && (
-              <div className="px-3 pb-3 font-mono text-[10px] text-zinc-500 max-h-48 overflow-y-auto space-y-0.5 bg-zinc-950/50">
+              <div className="px-3 pb-3 font-mono text-[10px] text-muted-foreground max-h-48 overflow-y-auto space-y-0.5 bg-card">
                 {failure!.stage_logs.map((line, i) => (
                   <div key={i}>{line}</div>
                 ))}
@@ -178,7 +178,7 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
             </button>
             <button
               onClick={handleCopyError}
-              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs font-medium hover:bg-zinc-700 transition-colors"
+              className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg bg-muted border border-input text-foreground text-xs font-medium hover:bg-secondary transition-colors"
             >
               {copied ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
               {copied ? 'Copied' : 'Copy Error'}
@@ -192,7 +192,7 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
                 <button
                   key={action}
                   disabled
-                  className="px-2 py-1 rounded text-[10px] bg-zinc-800/50 border border-zinc-700/50 text-zinc-500 cursor-not-allowed"
+                  className="px-2 py-1 rounded text-[10px] bg-accent border border-border text-muted-foreground cursor-not-allowed"
                 >
                   {action}
                 </button>
@@ -204,13 +204,18 @@ export function StageRecoveryPanel({ runId, stageId, stageLabel, stageIcon: Icon
     );
   }
 
-  // When the run failed but this stage was already completed, show a success state
+  // When the run failed but this stage was already completed, keep its content
+  // (e.g. generated project/code) visible and mark the later failure, rather
+  // than replacing valid previous-stage data with an empty placeholder.
   if (isFailed && completedBeforeFailure) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-emerald-500 gap-2">
-        <CheckCircle2 className="h-10 w-10 text-emerald-400/60" />
-        <p className="text-xs text-zinc-500">{stageLabel} completed successfully</p>
-        <p className="text-[10px] text-zinc-600">Workflow failed at a later stage</p>
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <span className="font-medium text-emerald-300">{stageLabel} completed successfully</span>
+          <span className="text-muted-foreground">· Workflow failed at a later stage</span>
+        </div>
+        {children}
       </div>
     );
   }

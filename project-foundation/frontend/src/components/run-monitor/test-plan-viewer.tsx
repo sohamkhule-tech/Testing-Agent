@@ -60,12 +60,12 @@ export function TestPlanViewer() {
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
   return (
-    <div className="space-y-3 pt-3 border-t border-zinc-800">
+    <div className="space-y-3 pt-3 border-t border-border">
       <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10">
         <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
         <div>
           <p className="text-sm font-semibold text-emerald-300">Test Plan Generated Successfully</p>
-          <p className="text-xs text-zinc-400 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             <span className="font-mono text-emerald-400">{scenarioCount}</span> scenarios across{' '}
             <span className="font-mono text-emerald-400">{modules.length}</span> modules
           </p>
@@ -75,14 +75,14 @@ export function TestPlanViewer() {
       {!showPreview ? (
         <button
           onClick={() => setShowPreview(true)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-muted hover:bg-secondary border border-input text-foreground text-xs font-medium transition-colors"
         >
           <Eye className="h-3.5 w-3.5" />
           Preview Workbook Before Download
         </button>
       ) : (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 overflow-hidden">
-          <div className="flex border-b border-zinc-800 overflow-x-auto">
+        <div className="rounded-xl border border-border bg-muted/80 overflow-hidden">
+          <div className="flex border-b border-border overflow-x-auto">
             {SHEETS.map((sheet) => {
               const Icon = sheet.icon;
               return (
@@ -93,7 +93,7 @@ export function TestPlanViewer() {
                     'flex items-center gap-1.5 px-3 py-2 text-[10px] font-medium whitespace-nowrap transition-colors',
                     activeSheet === sheet.name
                       ? 'text-emerald-400 border-b-2 border-emerald-500 bg-emerald-500/5'
-                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/30',
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/60',
                   )}
                 >
                   <Icon className="h-3 w-3" />
@@ -107,7 +107,7 @@ export function TestPlanViewer() {
           <div className="p-4">
             {activeSheet === 'Summary' && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-200">Executive Summary</p>
+                <p className="text-xs font-semibold text-foreground">Executive Summary</p>
                 <div className="grid grid-cols-2 gap-2 text-[10px]">
                   {[
                     ['Total Scenarios', String(scenarioCount)],
@@ -115,9 +115,9 @@ export function TestPlanViewer() {
                     ['Critical Scenarios', String(scenarios.filter(s => s.priority === 'critical').length)],
                     ['Automation Coverage', `${scenarios.length > 0 ? Math.round(((scenarios.length - scenarios.filter(s => s.priority === 'low').length) / scenarios.length) * 100) : 0}%`],
                   ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between p-2 rounded bg-zinc-800/50">
-                      <span className="text-zinc-400">{label}</span>
-                      <span className="font-mono text-zinc-200">{value}</span>
+                    <div key={label} className="flex items-center justify-between p-2 rounded bg-accent">
+                      <span className="text-muted-foreground">{label}</span>
+                      <span className="font-mono text-foreground">{value}</span>
                     </div>
                   ))}
                 </div>
@@ -126,9 +126,9 @@ export function TestPlanViewer() {
 
             {activeSheet === 'Inventory' && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-200">Application Inventory</p>
-                <p className="text-[10px] text-zinc-400">All discovered pages, forms, inputs, and UI components.</p>
-                <div className="text-[10px] text-zinc-500 italic">
+                <p className="text-xs font-semibold text-foreground">Application Inventory</p>
+                <p className="text-[10px] text-muted-foreground">All discovered pages, forms, inputs, and UI components.</p>
+                <div className="text-[10px] text-muted-foreground italic">
                   Full inventory available in the Inventory tab.
                 </div>
               </div>
@@ -136,12 +136,12 @@ export function TestPlanViewer() {
 
             {activeSheet === 'Modules' && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-200">Detected Modules</p>
+                <p className="text-xs font-semibold text-foreground">Detected Modules</p>
                 <div className="space-y-1">
                   {modules.map((m) => (
-                    <div key={m.name} className="flex items-center justify-between p-2 rounded bg-zinc-800/50">
-                      <span className="text-[10px] text-zinc-300">{m.name}</span>
-                      <span className="text-[10px] text-zinc-500">{m.scenarioCount} scenarios</span>
+                    <div key={m.name} className="flex items-center justify-between p-2 rounded bg-accent">
+                      <span className="text-[10px] text-foreground">{m.name}</span>
+                      <span className="text-[10px] text-muted-foreground">{m.scenarioCount} scenarios</span>
                     </div>
                   ))}
                 </div>
@@ -150,8 +150,8 @@ export function TestPlanViewer() {
 
             {activeSheet === 'Scenarios' && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-200">Test Scenarios</p>
-                <p className="text-[10px] text-zinc-400">
+                <p className="text-xs font-semibold text-foreground">Test Scenarios</p>
+                <p className="text-[10px] text-muted-foreground">
                   {scenarioCount} scenarios generated. View all in the scenario cards above.
                 </p>
               </div>
@@ -159,8 +159,8 @@ export function TestPlanViewer() {
 
             {activeSheet === 'Test Data' && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-zinc-200">Test Data</p>
-                <p className="text-[10px] text-zinc-400">Required test data for scenario execution.</p>
+                <p className="text-xs font-semibold text-foreground">Test Data</p>
+                <p className="text-[10px] text-muted-foreground">Required test data for scenario execution.</p>
               </div>
             )}
           </div>
@@ -179,7 +179,7 @@ export function TestPlanViewer() {
           <a
             href={`${apiBase}/api/v1/runs/${runId}/artifacts/test-plan`}
             download
-            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+            className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-muted hover:bg-secondary border border-input text-foreground text-xs font-medium transition-colors"
           >
             <FileSpreadsheet className="h-3.5 w-3.5" />
             JSON
@@ -208,10 +208,10 @@ function StatCard({ icon: Icon, value, label, color, suffix }: { icon: React.Ele
     emerald: 'text-emerald-400',
   };
   return (
-    <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-center">
-      <Icon className={cn('h-3.5 w-3.5 mx-auto mb-0.5', colors[color] || 'text-zinc-400')} />
-      <p className={cn('text-sm font-bold tabular-nums', colors[color] || 'text-zinc-400')}>{value}{suffix || ''}</p>
-      <p className="text-[9px] text-zinc-500">{label}</p>
+    <div className="p-2 rounded-lg bg-muted border border-border text-center">
+      <Icon className={cn('h-3.5 w-3.5 mx-auto mb-0.5', colors[color] || 'text-muted-foreground')} />
+      <p className={cn('text-sm font-bold tabular-nums', colors[color] || 'text-muted-foreground')}>{value}{suffix || ''}</p>
+      <p className="text-[9px] text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -276,7 +276,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
 
   if (!isActive) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-zinc-600 gap-3">
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
         <UserCheck className="h-10 w-10 animate-pulse" />
         <p className="text-xs">Human review panel will activate once test plan is ready.</p>
       </div>
@@ -329,7 +329,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
       critical: 'bg-red-500/20 text-red-400 border-red-500/40',
       high: 'bg-orange-500/20 text-orange-400 border-orange-500/40',
       medium: 'bg-amber-500/20 text-amber-400 border-amber-500/40',
-      low: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/40',
+      low: 'bg-muted text-muted-foreground border-input',
     };
     return (
       <span className={cn('text-[10px] px-1.5 py-0.5 rounded border font-semibold uppercase', colors[p] || colors.low)}>
@@ -339,7 +339,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
   };
 
   const CategoryBadge = ({ c }: { c: string }) => (
-    <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400 capitalize">
+    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted border border-input text-muted-foreground capitalize">
       {c.replace(/_/g, ' ')}
     </span>
   );
@@ -353,7 +353,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
           <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0" />
           <div>
             <p className="text-sm font-semibold">Human Review Completed</p>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               The test plan has already been approved and processed for this workflow.
             </p>
           </div>
@@ -365,7 +365,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
           <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-semibold text-amber-300">Human Review Required</p>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5">
               Review the AI-generated test plan with <span className="font-mono text-amber-300">{scenarioCount}</span> scenarios
               across <span className="font-mono text-amber-300">{modules.length}</span> modules.
             </p>
@@ -394,7 +394,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
       </div>
 
       {/* Priority distribution bar */}
-      <div className="flex items-center gap-2 h-5 rounded-full overflow-hidden bg-zinc-800">
+      <div className="flex items-center gap-2 h-5 rounded-full overflow-hidden bg-muted">
         {criticalCount > 0 && (
           <div className="bg-red-500 h-full text-[9px] flex items-center justify-center text-white font-semibold" style={{ width: `${(criticalCount / scenarioCount) * 100}%` }}>
             {criticalCount}
@@ -420,7 +420,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
       {/* Category breakdown */}
       <div className="flex flex-wrap gap-1">
         {Object.entries(categoryCounts).map(([cat, count]) => (
-          <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 capitalize">
+          <span key={cat} className="text-[10px] px-2 py-0.5 rounded-full bg-muted border border-input text-muted-foreground capitalize">
             {cat.replace(/_/g, ' ')} ({count})
           </span>
         ))}
@@ -440,19 +440,19 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
       {/* Search & Filters */}
       <div className="flex gap-2">
         <div className="flex-1 relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <input
             type="text"
             placeholder="Search scenarios..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/50"
+            className="w-full pl-7 pr-3 py-1.5 text-xs rounded-lg bg-muted border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-amber-500/50"
           />
         </div>
         <select
           value={filterPriority}
           onChange={(e) => setFilterPriority(e.target.value as ReviewFilter)}
-          className="px-2 py-1.5 text-xs rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 focus:outline-none focus:border-amber-500/50"
+          className="px-2 py-1.5 text-xs rounded-lg bg-muted border border-input text-foreground focus:outline-none focus:border-amber-500/50"
         >
           <option value="all">All Priorities</option>
           <option value="critical">Critical</option>
@@ -463,15 +463,15 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
       </div>
 
       {/* Scenario table */}
-      <div className="max-h-64 overflow-y-auto rounded-lg border border-zinc-700">
+      <div className="max-h-64 overflow-y-auto rounded-lg border border-input">
         {filteredScenarios.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-zinc-500 text-xs">
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
             No scenarios match the current filter.
           </div>
         ) : (
           <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-zinc-800">
-              <tr className="text-zinc-400 text-left">
+            <thead className="sticky top-0 bg-muted">
+              <tr className="text-muted-foreground text-left">
                 <th className="py-2 px-3 font-medium w-20">ID</th>
                 <th className="py-2 px-3 font-medium">Title</th>
                 <th className="py-2 px-3 font-medium w-20">Priority</th>
@@ -479,36 +479,36 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
                 <th className="py-2 px-3 font-medium w-16"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-800">
+            <tbody className="divide-y divide-border">
               {filteredScenarios.map((sc) => {
                 const isExpanded = expandedScenarios.has(sc.id);
                 return (
                   <React.Fragment key={sc.id}>
                     <tr
-                      className="hover:bg-zinc-800/50 cursor-pointer transition-colors"
+                      className="hover:bg-accent cursor-pointer transition-colors"
                       onClick={() => toggleExpand(sc.id)}
                     >
-                      <td className="py-1.5 px-3 font-mono text-zinc-500">{sc.id}</td>
-                      <td className="py-1.5 px-3 text-zinc-300">{sc.title}</td>
+                      <td className="py-1.5 px-3 font-mono text-muted-foreground">{sc.id}</td>
+                      <td className="py-1.5 px-3 text-foreground">{sc.title}</td>
                       <td className="py-1.5 px-3"><PriorityBadge p={sc.priority} /></td>
                       <td className="py-1.5 px-3"><CategoryBadge c={sc.category || 'functional'} /></td>
-                      <td className="py-1.5 px-3 text-zinc-500">
+                      <td className="py-1.5 px-3 text-muted-foreground">
                         {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                       </td>
                     </tr>
                     {isExpanded && (
-                      <tr className="bg-zinc-900/50">
+                      <tr className="bg-muted/50">
                         <td colSpan={5} className="px-4 py-3">
                           <div className="text-xs space-y-2">
-                            <div className="flex gap-4 text-zinc-400">
-                              <span>Module: <span className="text-zinc-300">{sc.module || '-'}</span></span>
-                              <span>Risk: <span className="text-zinc-300 capitalize">{sc.riskLevel || 'medium'}</span></span>
+                            <div className="flex gap-4 text-muted-foreground">
+                              <span>Module: <span className="text-foreground">{sc.module || '-'}</span></span>
+                              <span>Risk: <span className="text-foreground capitalize">{sc.riskLevel || 'medium'}</span></span>
                             </div>
-                            <p className="text-zinc-400">{sc.description}</p>
+                            <p className="text-muted-foreground">{sc.description}</p>
                             {(sc as any).test_steps?.length > 0 && (
                               <div>
-                                <p className="text-[11px] font-semibold text-zinc-500 mb-1">Test Steps</p>
-                                <ol className="list-decimal list-inside space-y-0.5 text-zinc-400">
+                                <p className="text-[11px] font-semibold text-muted-foreground mb-1">Test Steps</p>
+                                <ol className="list-decimal list-inside space-y-0.5 text-muted-foreground">
                                   {(sc as any).test_steps.map((step: string, i: number) => (
                                     <li key={i} className="leading-relaxed">{step}</li>
                                   ))}
@@ -516,7 +516,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
                               </div>
                             )}
                             {(sc as any).expected_result && (
-                              <p className="text-zinc-400"><span className="text-zinc-500">Expected:</span> {(sc as any).expected_result}</p>
+                              <p className="text-muted-foreground"><span className="text-muted-foreground">Expected:</span> {(sc as any).expected_result}</p>
                             )}
                           </div>
                         </td>
@@ -559,8 +559,8 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
               className={cn(
                 "flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold text-sm transition-colors",
                 isCompleted
-                  ? "bg-zinc-900 border border-zinc-800 text-zinc-600 cursor-not-allowed opacity-50"
-                  : "bg-zinc-800 hover:bg-red-900/50 border border-zinc-700 hover:border-red-500/50 text-zinc-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  ? "bg-muted border border-border text-muted-foreground cursor-not-allowed opacity-50"
+                  : "bg-muted hover:bg-red-900/50 border border-input hover:border-red-500/50 text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
               )}
             >
               <ThumbsDown className="h-4 w-4" />
@@ -570,14 +570,14 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
           <div className="flex gap-2">
             <button
               disabled
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-zinc-500 text-xs cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-accent border border-border text-muted-foreground text-xs cursor-not-allowed"
             >
               <Edit3 className="h-3.5 w-3.5" />
               Edit Scenarios
             </button>
             <button
               disabled
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-zinc-500 text-xs cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-accent border border-border text-muted-foreground text-xs cursor-not-allowed"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Regenerate
@@ -606,7 +606,7 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
         <a
           href={`${apiBase}/api/v1/runs/${runId}/artifacts/test-plan`}
           download
-          className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+          className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-muted hover:bg-secondary border border-input text-foreground text-xs font-medium transition-colors"
         >
           <FileSpreadsheet className="h-3.5 w-3.5" />
           View JSON
@@ -616,30 +616,30 @@ export function HumanReviewPanel({ runId }: HumanReviewPanelProps) {
       {/* Feedback dialog (reject) */}
       {feedbackOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-md mx-4 shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+          <div className="bg-muted border border-input rounded-xl w-full max-w-md mx-4 shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-amber-400" />
-                <h3 className="text-sm font-semibold text-zinc-200">Reject Test Plan</h3>
+                <h3 className="text-sm font-semibold text-foreground">Reject Test Plan</h3>
               </div>
-              <button onClick={() => setFeedbackOpen(false)} className="text-zinc-500 hover:text-zinc-300">
+              <button onClick={() => setFeedbackOpen(false)} className="text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="p-4 space-y-3">
-              <p className="text-xs text-zinc-400">Please explain what changes are needed before this test plan can be approved.</p>
+              <p className="text-xs text-muted-foreground">Please explain what changes are needed before this test plan can be approved.</p>
               <textarea
                 value={feedbackText}
                 onChange={(e) => setFeedbackText(e.target.value)}
                 placeholder="e.g. Add more boundary test scenarios, missing login validation edge cases, need API-level tests for /api/users endpoint..."
                 rows={4}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 placeholder:text-zinc-600 focus:outline-none focus:border-amber-500/50 resize-none"
+                className="w-full px-3 py-2 text-xs rounded-lg bg-muted border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-amber-500/50 resize-none"
               />
             </div>
-            <div className="flex gap-3 px-4 py-3 border-t border-zinc-800">
+            <div className="flex gap-3 px-4 py-3 border-t border-border">
               <button
                 onClick={() => setFeedbackOpen(false)}
-                className="flex-1 px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs font-medium hover:bg-zinc-700 transition-colors"
+                className="flex-1 px-3 py-2 rounded-lg bg-muted border border-input text-foreground text-xs font-medium hover:bg-secondary transition-colors"
               >
                 Cancel
               </button>

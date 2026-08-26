@@ -13,7 +13,7 @@ import type { TestRun, Project, WorkflowPhase } from '@/types/api';
 
 // Maps current_phase to a human-readable button label, icon, and colour
 const PHASE_CTA: Record<WorkflowPhase, { label: string; Icon: React.ElementType; color: string }> = {
-  trigger:         { label: 'View Run Setup',           Icon: Zap,          color: 'bg-zinc-700 hover:bg-zinc-600' },
+  trigger:         { label: 'View Run Setup',           Icon: Zap,          color: 'bg-secondary hover:bg-secondary/80 text-secondary-foreground' },
   crawler:         { label: 'Open Live Crawler Screen', Icon: Globe2,       color: 'bg-blue-600 hover:bg-blue-500' },
   inventory:       { label: 'View Inventory Analysis',  Icon: Layers,       color: 'bg-violet-600 hover:bg-violet-500' },
   test_design:     { label: 'View AI Test Design',      Icon: Bot,          color: 'bg-indigo-600 hover:bg-indigo-500' },

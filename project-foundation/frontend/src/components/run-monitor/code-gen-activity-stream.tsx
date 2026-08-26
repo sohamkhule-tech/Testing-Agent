@@ -98,11 +98,18 @@ export function CodeGenActivityStream() {
   const { data: logsData } = useRunLogs(runId ?? '');
   
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const isGenerating = progress > 0 && progress < 100 && !error;
   const isFailed = !!error;
   const isComplete = progress === 100 && !error;
+
+  // Expand the live console while generating, and collapse it once generation
+  // finishes so a completed/failed run does not keep reserving the streaming
+  // output area. Users can still re-expand it manually afterwards.
+  useEffect(() => {
+    setIsExpanded(isGenerating);
+  }, [isGenerating]);
 
   // Live elapsed timer
   useEffect(() => {
@@ -251,11 +258,14 @@ export function CodeGenActivityStream() {
 
   return (
     <div className="space-y-4">
+      {/* Live Activity Log — hidden entirely when idle with no entries */}
+      {(isGenerating || logEntries.length > 0) && (
+        <>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Terminal className="h-4 w-4 text-cyan-400" />
-          <h3 className="text-sm font-semibold text-zinc-200">Live Activity Log</h3>
+          <h3 className="text-sm font-semibold text-foreground">Live Activity Log</h3>
           {isGenerating && (
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
@@ -263,24 +273,24 @@ export function CodeGenActivityStream() {
             </span>
           )}
           {logEntries.length > 0 && (
-            <span className="text-[10px] font-mono bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
               {logEntries.length} entries
             </span>
           )}
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="h-3.5 w-3.5" />
             <span className="font-mono">{formatDuration(elapsedMs)}</span>
           </div>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1 hover:bg-zinc-800 rounded transition-colors"
+            className="p-1 hover:bg-muted rounded transition-colors"
           >
             {isExpanded ? (
-              <ChevronUp className="h-4 w-4 text-zinc-400" />
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
             ) : (
-              <ChevronDown className="h-4 w-4 text-zinc-400" />
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
           </button>
         </div>
@@ -289,6 +299,8 @@ export function CodeGenActivityStream() {
       {/* Log Console */}
       {isExpanded && (
         <LogConsole entries={logEntries} isStreaming={isGenerating} />
+      )}
+        </>
       )}
 
       {/* Progress Summary */}
@@ -316,16 +328,16 @@ function LogConsole({ entries, isStreaming }: { entries: LogEntry[]; isStreaming
   };
 
   return (
-    <div className="relative rounded-lg border border-zinc-800 bg-zinc-950 overflow-hidden">
+    <div className="relative rounded-lg border border-border bg-muted overflow-hidden">
       {/* Console header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800 bg-zinc-900/50">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/50">
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             <div className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
             <div className="w-2.5 h-2.5 rounded-full bg-amber-500/80" />
             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500/80" />
           </div>
-          <span className="text-[10px] text-zinc-500 font-mono">console.log</span>
+          <span className="text-[10px] text-muted-foreground font-mono">console.log</span>
         </div>
         <div className="flex items-center gap-2">
           {!autoScroll && (
@@ -342,7 +354,7 @@ function LogConsole({ entries, isStreaming }: { entries: LogEntry[]; isStreaming
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
               </span>
-              <span className="text-[10px] text-zinc-500">LIVE</span>
+              <span className="text-[10px] text-muted-foreground">LIVE</span>
             </div>
           )}
         </div>
@@ -358,11 +370,11 @@ function LogConsole({ entries, isStreaming }: { entries: LogEntry[]; isStreaming
         }}
       >
         {entries.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-zinc-600">
+          <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center space-y-2">
               <Terminal className="h-8 w-8 mx-auto opacity-50" />
               <p className="text-xs">No activity data</p>
-              <p className="text-[10px] text-zinc-700">Restart backend and refresh to load logs</p>
+              <p className="text-[10px] text-muted-foreground">Restart backend and refresh to load logs</p>
             </div>
           </div>
         ) : (
@@ -372,18 +384,18 @@ function LogConsole({ entries, isStreaming }: { entries: LogEntry[]; isStreaming
               <div
                 key={entry.id}
                 className={cn(
-                  'flex items-start gap-2 px-2 py-1 rounded hover:bg-zinc-900/50 transition-colors',
+                  'flex items-start gap-2 px-2 py-1 rounded hover:bg-muted/50 transition-colors',
                   entry.level === 'error' && 'bg-red-950/20',
                 )}
               >
                 {/* Timestamp */}
-                <span className="text-zinc-600 shrink-0 w-20 select-all">
+                <span className="text-muted-foreground shrink-0 w-20 select-all">
                   {formatTimestamp(entry.timestamp)}
                 </span>
 
                 {/* Stage badge */}
                 {entry.stage && (
-                  <span className="shrink-0 text-[9px] font-mono uppercase px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 w-24 text-center truncate">
+                  <span className="shrink-0 text-[9px] font-mono uppercase px-1 py-0.5 rounded bg-muted text-muted-foreground w-24 text-center truncate">
                     {entry.stage.replace('_', ' ')}
                   </span>
                 )}
@@ -407,7 +419,7 @@ function LogConsole({ entries, isStreaming }: { entries: LogEntry[]; isStreaming
                     entry.level === 'error' && 'text-red-300',
                     entry.level === 'success' && 'text-emerald-300',
                     entry.level === 'warning' && 'text-amber-300',
-                    entry.level === 'info' && 'text-zinc-400',
+                    entry.level === 'info' && 'text-muted-foreground',
                   )}
                 >
                   {entry.message}
@@ -420,7 +432,7 @@ function LogConsole({ entries, isStreaming }: { entries: LogEntry[]; isStreaming
 
       {/* Scroll indicator */}
       {!autoScroll && (
-        <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-zinc-950 to-transparent pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background to-transparent pointer-events-none" />
       )}
     </div>
   );
@@ -452,14 +464,14 @@ function ProgressSummary({
   }, milestones[0]);
 
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
+    <div className="rounded-lg border border-border bg-muted/50 p-4 space-y-3">
       {/* Progress bar */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-zinc-400">Generation Progress</span>
-          <span className="text-xs font-mono font-bold text-zinc-300">{progress}%</span>
+          <span className="text-xs font-medium text-muted-foreground">Generation Progress</span>
+          <span className="text-xs font-mono font-bold text-foreground">{progress}%</span>
         </div>
-        <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
           <div
             className={cn(
               'h-full rounded-full transition-all duration-700 ease-out',
@@ -483,16 +495,16 @@ function ProgressSummary({
               key={milestone.label}
               className={cn(
                 'flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium transition-all',
-                isReached ? 'bg-zinc-800 border border-zinc-700' : 'bg-zinc-900 border border-zinc-800',
+                isReached ? 'bg-muted border border-input' : 'bg-muted border border-border',
                 isCurrent && isGenerating && 'ring-1 ring-cyan-500/50',
               )}
             >
               {isReached ? (
                 <CheckCircle2 className="h-3 w-3 text-emerald-400" />
               ) : (
-                <div className="h-3 w-3 rounded-full border border-zinc-700" />
+                <div className="h-3 w-3 rounded-full border border-input" />
               )}
-              <span className={cn(isReached ? 'text-zinc-300' : 'text-zinc-600')}>
+              <span className={cn(isReached ? 'text-foreground' : 'text-muted-foreground')}>
                 {milestone.label}
               </span>
             </div>

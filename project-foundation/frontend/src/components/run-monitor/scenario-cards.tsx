@@ -18,16 +18,16 @@ import {
 } from 'lucide-react';
 
 const priorityColors: Record<string, string> = {
-  critical: 'text-red-400 bg-red-500/15 border-red-500/30',
-  high: 'text-orange-400 bg-orange-500/15 border-orange-500/30',
-  medium: 'text-amber-400 bg-amber-500/15 border-amber-500/30',
-  low: 'text-zinc-400 bg-zinc-800 border-zinc-700',
+  critical: 'text-red-700 dark:text-red-400 bg-red-500/15 border-red-500/30 font-semibold',
+  high: 'text-orange-700 dark:text-orange-400 bg-orange-500/15 border-orange-500/30 font-semibold',
+  medium: 'text-amber-700 dark:text-amber-400 bg-amber-500/15 border-amber-500/30 font-semibold',
+  low: 'text-slate-700 dark:text-muted-foreground bg-secondary border-border font-medium',
 };
 
 const riskColors: Record<string, string> = {
-  high: 'text-red-400',
-  medium: 'text-amber-400',
-  low: 'text-emerald-400',
+  high: 'text-red-700 dark:text-red-400 font-semibold',
+  medium: 'text-amber-700 dark:text-amber-400 font-semibold',
+  low: 'text-emerald-700 dark:text-emerald-400 font-semibold',
 };
 
 function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
@@ -36,37 +36,37 @@ function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
   const hasFullDetails = Boolean(scenario.description);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 hover:border-zinc-700 transition-all duration-200 overflow-hidden">
+    <div className="rounded-xl border border-border bg-card shadow-2xs hover:border-border/80 transition-all duration-200 overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-zinc-800/40 transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/60 transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="h-4 w-4 text-zinc-400 shrink-0" />
+          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
         ) : (
-          <ChevronRight className="h-4 w-4 text-zinc-400 shrink-0" />
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
         )}
 
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/15 text-blue-400 text-xs font-bold shrink-0">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/15 text-blue-700 dark:text-blue-400 text-xs font-bold shrink-0">
           {scenario.id.replace('TC-', '')}
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-zinc-200 truncate">{scenario.title}</p>
-          <p className="text-[10px] text-zinc-500 truncate">{scenario.module}</p>
+          <p className="text-sm font-semibold text-foreground truncate">{scenario.title}</p>
+          <p className="text-[10px] text-muted-foreground font-medium truncate">{scenario.module}</p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <span className={cn(
-            'text-[10px] px-2 py-0.5 rounded-full border font-medium',
-            priorityColors[scenario.priority] ?? 'text-zinc-400 bg-zinc-800 border-zinc-700',
+            'text-[10px] px-2 py-0.5 rounded-full border font-semibold',
+            priorityColors[scenario.priority] ?? 'text-muted-foreground bg-muted border-input',
           )}>
             {scenario.priority}
           </span>
           <span className={cn(
-            'text-[10px] font-medium flex items-center gap-1',
-            riskColors[scenario.riskLevel] ?? 'text-zinc-400',
+            'text-[10px] font-semibold flex items-center gap-1',
+            riskColors[scenario.riskLevel] ?? 'text-muted-foreground',
           )}>
             <Shield className="h-3 w-3" />
             {scenario.riskLevel}
@@ -76,25 +76,25 @@ function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
 
       {/* Expanded content */}
       {expanded && hasFullDetails && (
-        <div className="px-4 pb-4 pt-2 border-t border-zinc-800 space-y-3">
+        <div className="px-4 pb-4 pt-2 border-t border-border space-y-3">
           {/* Description */}
           {scenario.description && (
             <div className="space-y-1">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold flex items-center gap-1">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1">
                 <Info className="h-3 w-3" /> Description
               </p>
-              <p className="text-xs text-zinc-300">{scenario.description}</p>
+              <p className="text-xs text-foreground font-medium">{scenario.description}</p>
             </div>
           )}
 
           {/* AI Reasoning */}
           {scenario.description && (
-            <div className="p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
-              <p className="text-[10px] text-violet-400 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1">
+            <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20">
+              <p className="text-[10px] text-violet-700 dark:text-violet-400 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1">
                 <Brain className="h-3 w-3" /> AI Reasoning
               </p>
-              <p className="text-[11px] text-violet-300/80">
-                This scenario was generated based on the <strong className="text-violet-200">{scenario.module}</strong> module.
+              <p className="text-[11px] text-violet-800 dark:text-violet-300 font-medium">
+                This scenario was generated based on the <strong className="text-violet-900 dark:text-violet-200">{scenario.module}</strong> module.
                 {scenario.priority === 'critical' && ' It covers a critical application flow that requires thorough validation.'}
                 {scenario.riskLevel === 'high' && ' High risk due to potential impact on core functionality.'}
                 {scenario.category === 'authentication' && ' Authentication scenarios ensure secure access control.'}
@@ -105,30 +105,30 @@ function ScenarioCard({ scenario }: { scenario: ScenarioInfo }) {
 
           {/* Metadata grid */}
           <div className="grid grid-cols-3 gap-2">
-            <div className="p-2 rounded-lg bg-zinc-800/50">
-              <p className="text-[10px] text-zinc-500">Category</p>
-              <p className="text-xs font-medium text-zinc-200 capitalize">{scenario.category}</p>
+            <div className="p-2 rounded-lg bg-accent">
+              <p className="text-[10px] text-muted-foreground">Category</p>
+              <p className="text-xs font-medium text-foreground capitalize">{scenario.category}</p>
             </div>
-            <div className="p-2 rounded-lg bg-zinc-800/50">
-              <p className="text-[10px] text-zinc-500">Target Page</p>
-              <p className="text-xs font-medium text-zinc-200 truncate">{scenario.targetPage || 'N/A'}</p>
+            <div className="p-2 rounded-lg bg-accent">
+              <p className="text-[10px] text-muted-foreground">Target Page</p>
+              <p className="text-xs font-medium text-foreground truncate">{scenario.targetPage || 'N/A'}</p>
             </div>
-            <div className="p-2 rounded-lg bg-zinc-800/50">
-              <p className="text-[10px] text-zinc-500">Risk Level</p>
+            <div className="p-2 rounded-lg bg-accent">
+              <p className="text-[10px] text-muted-foreground">Risk Level</p>
               <p className={cn('text-xs font-medium capitalize', riskColors[scenario.riskLevel])}>{scenario.riskLevel}</p>
             </div>
           </div>
 
           {/* Traceability */}
-          <div className="p-2.5 rounded-lg bg-zinc-800/30 border border-zinc-800">
-            <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold flex items-center gap-1 mb-1.5">
+          <div className="p-2.5 rounded-lg bg-accent/60 border border-border">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1 mb-1.5">
               <Link2 className="h-3 w-3" /> Traceability
             </p>
-            <div className="flex items-center gap-2 text-[10px] text-zinc-400">
-              <span className="px-1.5 py-0.5 rounded bg-zinc-800">{scenario.module}</span>
-              <span className="text-zinc-600">→</span>
-              <span className="px-1.5 py-0.5 rounded bg-zinc-800">{scenario.targetPage || 'Application'}</span>
-              <span className="text-zinc-600">→</span>
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span className="px-1.5 py-0.5 rounded bg-muted">{scenario.module}</span>
+              <span className="text-muted-foreground">→</span>
+              <span className="px-1.5 py-0.5 rounded bg-muted">{scenario.targetPage || 'Application'}</span>
+              <span className="text-muted-foreground">→</span>
               <span className="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400">{scenario.id}</span>
             </div>
           </div>
@@ -166,9 +166,9 @@ export function ScenarioCards() {
     <div className="space-y-3">
       {/* Summary header */}
       <div className="flex items-center justify-between px-1">
-        <p className="text-xs text-zinc-400">
-          <span className="font-semibold text-zinc-200">{displayScenarios.length || testPlanScenarios}</span> scenarios across{' '}
-          <span className="font-semibold text-zinc-200">{modules.length}</span> modules
+        <p className="text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">{displayScenarios.length || testPlanScenarios}</span> scenarios across{' '}
+          <span className="font-semibold text-foreground">{modules.length}</span> modules
         </p>
       </div>
 
@@ -178,7 +178,7 @@ export function ScenarioCards() {
           <ScenarioCard key={scenario.id} scenario={scenario} />
         ))}
         {displayScenarios.length === 0 && testPlanGenerated && (
-          <div className="flex items-center justify-center py-8 text-zinc-500">
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
             <p className="text-xs">Scenarios will appear during generation...</p>
           </div>
         )}

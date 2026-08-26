@@ -76,7 +76,7 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-8 text-zinc-500 text-xs gap-2">
+      <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
         Loading run state...
       </div>
@@ -115,7 +115,7 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-red-300">Workflow Failed</p>
             {failedStageLabel && (
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className="text-xs text-muted-foreground mt-0.5">
                 Failed at: <span className="text-red-400 font-medium">{failedStageLabel}</span>
               </p>
             )}
@@ -128,8 +128,8 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
 
       {/* Stage timeline */}
       <div className="space-y-1">
-        <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">Pipeline Stages</p>
-        <div className="rounded-lg border border-zinc-800 overflow-hidden">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Pipeline Stages</p>
+        <div className="rounded-lg border border-border overflow-hidden">
           {allStages.map((stage, i) => {
             const meta = STAGE_META[stage];
             const Icon = meta.icon;
@@ -143,10 +143,10 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
               <div key={stage}>
                 <div
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors hover:bg-zinc-800/50',
+                    'flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors hover:bg-accent',
                     isFailed && 'bg-red-500/10',
                     isCurrent && 'bg-amber-500/5',
-                    i > 0 && 'border-t border-zinc-800',
+                    i > 0 && 'border-t border-border',
                   )}
                   onClick={() => setExpandedStage(isExpanded ? null : stage)}
                 >
@@ -155,7 +155,7 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
                     isCompleted && 'bg-emerald-500/20',
                     isFailed && 'bg-red-500/20',
                     isCurrent && 'bg-amber-500/20',
-                    !isCompleted && !isFailed && !isCurrent && 'bg-zinc-800',
+                    !isCompleted && !isFailed && !isCurrent && 'bg-muted',
                   )}>
                     {isCompleted ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
@@ -164,46 +164,46 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
                     ) : isCurrent ? (
                       <Clock className="h-3.5 w-3.5 text-amber-400" />
                     ) : (
-                      <Icon className="h-3 w-3 text-zinc-600" />
+                      <Icon className="h-3 w-3 text-muted-foreground" />
                     )}
                   </div>
                   <span className={cn(
                     'flex-1 text-xs',
-                    isCompleted && 'text-zinc-300',
+                    isCompleted && 'text-foreground',
                     isFailed && 'text-red-400 font-medium',
                     isCurrent && 'text-amber-400',
-                    !isCompleted && !isFailed && !isCurrent && 'text-zinc-600',
+                    !isCompleted && !isFailed && !isCurrent && 'text-muted-foreground',
                   )}>
                     {meta.label}
                   </span>
                   {isCompleted && state.artifact_paths?.[stage] && (
-                    <span className="text-[9px] text-zinc-500">Artifact saved</span>
+                    <span className="text-[9px] text-muted-foreground">Artifact saved</span>
                   )}
                   {logs.length > 0 && (
-                    <span className="text-[9px] text-zinc-500">{logs.length} log{logs.length !== 1 ? 's' : ''}</span>
+                    <span className="text-[9px] text-muted-foreground">{logs.length} log{logs.length !== 1 ? 's' : ''}</span>
                   )}
-                  <span className="text-zinc-600">
+                  <span className="text-muted-foreground">
                     {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   </span>
                 </div>
                 {isExpanded && (
-                  <div className="px-4 py-2 border-t border-zinc-800 bg-zinc-900/50 space-y-1">
+                  <div className="px-4 py-2 border-t border-border bg-muted/50 space-y-1">
                     {isCompleted && state.artifact_paths?.[stage] && (
                       <div className="flex items-center gap-2 text-xs">
-                        <FileText className="h-3 w-3 text-zinc-500" />
-                        <span className="text-zinc-500">Artifact:</span>
-                        <span className="text-zinc-400 font-mono text-[10px] truncate">{state.artifact_paths[stage]}</span>
+                        <FileText className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-muted-foreground">Artifact:</span>
+                        <span className="text-muted-foreground font-mono text-[10px] truncate">{state.artifact_paths[stage]}</span>
                       </div>
                     )}
                     {logs.length > 0 && (
-                      <div className="text-[10px] font-mono text-zinc-400 max-h-32 overflow-y-auto space-y-0.5 pt-1">
+                      <div className="text-[10px] font-mono text-muted-foreground max-h-32 overflow-y-auto space-y-0.5 pt-1">
                         {logs.map((l, i) => (
-                          <div key={i} className="text-zinc-500">  {l}</div>
+                          <div key={i} className="text-muted-foreground">  {l}</div>
                         ))}
                       </div>
                     )}
                     {!isCompleted && !isFailed && !logs.length && (
-                      <p className="text-[10px] text-zinc-600 italic">No data available</p>
+                      <p className="text-[10px] text-muted-foreground italic">No data available</p>
                     )}
                   </div>
                 )}
@@ -227,7 +227,7 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
         )}
         <button
           disabled
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-500 text-sm font-medium cursor-not-allowed"
+          className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-muted border border-input text-muted-foreground text-sm font-medium cursor-not-allowed"
         >
           <Download className="h-4 w-4" />
           Download Logs
@@ -236,7 +236,7 @@ export function FailedStageCard({ runId, state, isLoading, error, status, onResu
 
       {/* Resume info */}
       {canResume && (
-        <p className="text-[10px] text-zinc-500 text-center">
+        <p className="text-[10px] text-muted-foreground text-center">
           Completed stages will be preserved and skipped. Only unfinished stages will execute.
         </p>
       )}

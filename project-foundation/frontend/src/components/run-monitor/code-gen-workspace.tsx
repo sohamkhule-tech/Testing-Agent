@@ -100,19 +100,19 @@ export function CodeGenWorkspace() {
 
   // Real-time auto-switch to currently generating file
   useEffect(() => {
-    if (currentGenFile?.filename) {
-      const match = displayFiles.find((f) => f.name === currentGenFile.filename || f.path.endsWith(currentGenFile.filename));
-      if (match) {
-        setSelectedFile(match);
-      } else {
-        setSelectedFile({
-          path: `${currentGenFile.folder}/${currentGenFile.filename}`,
-          name: currentGenFile.filename,
-          file_type: currentGenFile.file_type,
-          lines_of_code: undefined,
-          size_bytes: undefined,
-        });
-      }
+    if (!currentGenFile?.filename) return;
+    const match = displayFiles.find((f) => f.name === currentGenFile.filename || f.path.endsWith(currentGenFile.filename));
+    if (match) {
+      setSelectedFile((prev) => (prev?.name === match.name && prev?.path === match.path ? prev : match));
+    } else {
+      const fallback: GenFile = {
+        path: `${currentGenFile.folder}/${currentGenFile.filename}`,
+        name: currentGenFile.filename,
+        file_type: currentGenFile.file_type,
+        lines_of_code: undefined,
+        size_bytes: undefined,
+      };
+      setSelectedFile((prev) => (prev?.name === fallback.name && prev?.path === fallback.path ? prev : fallback));
     }
   }, [currentGenFile, displayFiles]);
 
@@ -143,10 +143,10 @@ export function CodeGenWorkspace() {
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-zinc-200">Playwright Code Generation</span>
+            <span className="text-sm font-semibold text-foreground">Playwright Code Generation</span>
             {isGenerating && <LivePulse />}
           </div>
-          <p className="text-[11px] text-zinc-500">
+          <p className="text-[11px] text-muted-foreground">
             {isFailed
               ? 'Generation failed — see details below'
               : isComplete
@@ -155,34 +155,40 @@ export function CodeGenWorkspace() {
           </p>
         </div>
         <div className="text-right">
-          <div className="text-xs font-mono text-zinc-400 flex items-center justify-end gap-1">
+          <div className="text-xs font-mono text-muted-foreground flex items-center justify-end gap-1">
             <Clock className="h-3 w-3" />
             {formatDuration(elapsedMs)}
           </div>
-          <div className="text-[10px] text-zinc-600">elapsed</div>
+          <div className="text-[10px] text-muted-foreground">elapsed</div>
         </div>
       </div>
 
       {/* Failure recovery */}
       {isFailed && <FailureCard error={error} />}
 
-      {/* Live Activity Stream & Status Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* LLM Status Card */}
-        <div className="lg:col-span-1">
-          <LLMStatusCard />
-        </div>
+      {/* Live generation telemetry — only shown while actively generating so a
+          completed/idle run does not reserve space for streaming placeholders. */}
+      {isGenerating && (
+        <>
+          {/* Live Activity Stream & Status Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* LLM Status Card */}
+            <div className="lg:col-span-1">
+              <LLMStatusCard />
+            </div>
 
-        {/* Current Activity Panel */}
-        <div className="lg:col-span-2">
-          <CurrentActivityPanel />
-        </div>
-      </div>
+            {/* Current Activity Panel */}
+            <div className="lg:col-span-2">
+              <CurrentActivityPanel />
+            </div>
+          </div>
 
-      {/* Live Metrics Dashboard */}
-      <LiveMetricsDashboard />
+          {/* Live Metrics Dashboard */}
+          <LiveMetricsDashboard />
+        </>
+      )}
 
-      {/* Live Activity Log Console */}
+      {/* Activity Log (collapses when idle) + Generation Progress */}
       <CodeGenActivityStream />
 
       {/* File Explorer + Code Viewer */}
@@ -245,7 +251,7 @@ function FailureCard({ error }: { error: string }) {
           <RefreshCw className="h-3 w-3" /> Retry
         </button>
         <button
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-muted hover:bg-secondary text-foreground text-xs transition-colors"
           onClick={() => alert('Partial download not yet implemented')}
         >
           <Download className="h-3 w-3" /> Download partial project
@@ -262,16 +268,16 @@ function CodeGenProgressLegacy() {
 
   return (
     <details className="text-xs">
-      <summary className="text-zinc-500 cursor-pointer hover:text-zinc-300 py-1">
+      <summary className="text-muted-foreground cursor-pointer hover:text-foreground py-1">
         View all generated files ({generatedFiles.length})
       </summary>
-      <div className="mt-2 max-h-48 overflow-y-auto space-y-0.5 pl-2 border-l border-zinc-800">
+      <div className="mt-2 max-h-48 overflow-y-auto space-y-0.5 pl-2 border-l border-border">
         {generatedFiles.map((f, i) => (
-          <div key={i} className="flex items-center gap-2 text-[10px] text-zinc-500 font-mono">
+          <div key={i} className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
             <FileCode className="h-3 w-3 shrink-0" />
             <span className="truncate">{f.path}</span>
             {f.lines_of_code && (
-              <span className="text-zinc-600 ml-auto shrink-0">{f.lines_of_code} LOC</span>
+              <span className="text-muted-foreground ml-auto shrink-0">{f.lines_of_code} LOC</span>
             )}
           </div>
         ))}

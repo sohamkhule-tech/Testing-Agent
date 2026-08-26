@@ -49,25 +49,25 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
   };
 
   const containerClasses = isModal
-    ? 'fixed inset-0 z-50 bg-[#07070b] flex flex-col text-foreground animate-fade-in'
+    ? 'fixed inset-0 z-50 bg-background flex flex-col text-foreground animate-fade-in'
     : 'w-full flex flex-col space-y-4 text-foreground';
 
   return (
     <div className={containerClasses}>
       {/* Header bar for Full UI workspace */}
-      <div className="flex items-center justify-between px-5 py-3 bg-zinc-950 border border-zinc-800 rounded-xl shadow-lg">
+      <div className="flex items-center justify-between px-5 py-3 bg-muted border border-border rounded-xl shadow-lg">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-500/10 border border-blue-500/30">
             <Globe className="h-5 w-5 text-blue-400 animate-pulse" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-zinc-100">Live Web Crawler UI Workspace</h2>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40">
+              <h2 className="text-sm font-bold text-foreground">Live Web Crawler UI Workspace</h2>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                 Full UI Mode
               </span>
             </div>
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-muted-foreground font-medium">
               {browser.currentUrl ? `Navigating: ${browser.currentUrl}` : 'Real-time autonomous browser execution & data collection'}
             </p>
           </div>
@@ -77,17 +77,17 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
         <div className="flex items-center gap-2">
           <button
             onClick={openPopout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs font-medium transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary hover:bg-muted border border-border text-foreground text-xs font-semibold transition-all"
             title="Open in standalone window"
           >
-            <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
+            <ExternalLink className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
             <span className="hidden sm:inline">Pop-out Window</span>
           </button>
 
           {isModal && onCloseModal && (
             <button
               onClick={onCloseModal}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-xs font-medium transition-all"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-semibold text-xs shadow-xs transition-all"
               title="Exit Full UI Mode"
             >
               <X className="h-4 w-4" />
@@ -101,12 +101,12 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-[580px] flex-1">
         {/* Left Main Viewport (8 Cols on desktop - Full Screen Canvas) */}
         <div className="lg:col-span-8 flex flex-col space-y-3">
-          <div className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950/90 shadow-2xl overflow-hidden flex flex-col min-h-[480px]">
+          <div className="flex-1 rounded-xl border border-border bg-card shadow-2xl overflow-hidden flex flex-col min-h-[480px]">
             <LiveBrowserPreview runId={runId} />
           </div>
 
           {/* Quick stats bar */}
-          <div className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
+          <div className="rounded-xl border border-border bg-card p-3">
             <CrawlStats />
           </div>
         </div>
@@ -114,14 +114,14 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
         {/* Right Sidebar (4 Cols on desktop - Live Feed & Controls) */}
         <div className="lg:col-span-4 flex flex-col space-y-3">
           {/* Sub-tabs for right sidebar */}
-          <div className="flex items-center gap-1 p-1 bg-zinc-900/80 border border-zinc-800 rounded-xl text-xs">
+          <div className="flex items-center gap-1 p-1 bg-muted/80 border border-border rounded-xl text-xs">
             <button
               onClick={() => setActiveRightTab('timeline')}
               className={cn(
                 'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg font-medium transition-all',
                 activeRightTab === 'timeline'
-                  ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-muted text-foreground shadow-sm border border-input'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               <Activity className="h-3.5 w-3.5 text-violet-400" />
@@ -133,8 +133,8 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
               className={cn(
                 'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg font-medium transition-all',
                 activeRightTab === 'stats'
-                  ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-muted text-foreground shadow-sm border border-input'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               <Layers className="h-3.5 w-3.5 text-blue-400" />
@@ -146,8 +146,8 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
               className={cn(
                 'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg font-medium transition-all',
                 activeRightTab === 'screenshots'
-                  ? 'bg-zinc-800 text-zinc-100 shadow-sm border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-muted text-foreground shadow-sm border border-input'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               <Camera className="h-3.5 w-3.5 text-pink-400" />
@@ -156,7 +156,7 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
           </div>
 
           {/* Active Sidebar View */}
-          <div className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950/80 p-4 overflow-y-auto max-h-[580px]">
+          <div className="flex-1 rounded-xl border border-border bg-card p-4 overflow-y-auto max-h-[580px]">
             {activeRightTab === 'timeline' && (
               <div className="h-full flex flex-col">
                 <EventTimeline />
@@ -171,7 +171,7 @@ export function FullUICrawlerWorkspace({ runId, isModal = false, onCloseModal }:
 
             {activeRightTab === 'screenshots' && (
               <div className="space-y-3">
-                <h4 className="text-xs font-semibold text-zinc-300 flex items-center gap-2">
+                <h4 className="text-xs font-semibold text-foreground flex items-center gap-2">
                   <Camera className="h-4 w-4 text-pink-400" /> Live Captured Screenshots
                 </h4>
                 <ScreenshotGallery runId={runId} />

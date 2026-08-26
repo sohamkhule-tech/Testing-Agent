@@ -10,6 +10,14 @@
  */
 
 import { create } from 'zustand';
+import {
+  STAGE_ORDER,
+  stageToId,
+  canStartStage,
+  demoteToSingleActive,
+  resolveActiveStage,
+  ensureSingleActiveStage,
+} from './workflow-invariants';
 
 // ---------------------------------------------------------------------------
 // Event type constants — must match backend EventType constants
@@ -50,6 +58,23 @@ export const EventType = {
   QUEUE_UPDATED:              'queue_updated',
   PAGE_COMPLETED:             'page_completed',
   CRAWL_COMPLETED:            'crawl_completed',
+
+  // Authentication — generic structured lifecycle (no secrets in data)
+  AUTH_STARTED:               'auth_started',
+  AUTH_URL_DISCOVERED:        'auth_url_discovered',
+  AUTH_FORM_DETECTED:         'auth_form_detected',
+  AUTH_SUBMITTED:             'auth_submitted',
+  AUTH_REDIRECT_STARTED:      'auth_redirect_started',
+  AUTH_REDIRECT_COMPLETED:    'auth_redirect_completed',
+  OAUTH_DETECTED:             'oauth_detected',
+  MFA_REQUIRED:               'mfa_required',
+  AUTH_VERIFICATION_STARTED:  'auth_verification_started',
+  AUTHENTICATED:              'authenticated',
+  AUTHENTICATION_FAILED:      'authentication_failed',
+  AUTHENTICATION_TIMEOUT:     'authentication_timeout',
+  AUTHENTICATION_UNKNOWN:     'authentication_unknown',
+  AUTH_STRATEGY_UNSUPPORTED:  'auth_strategy_unsupported',
+  AUTH_URL_NOT_FOUND:         'auth_url_not_found',
 
   // Inventory
   INVENTORY_STARTED:        'inventory_started',
@@ -113,6 +138,12 @@ export const EventType = {
   TEST_SKIPPED:             'test_skipped',
   EXECUTION_COMPLETED:      'execution_completed',
 
+  // Allure report generation
+  REPORT_GENERATION_STARTED: 'report_generation_started',
+  REPORT_GENERATION_COMPLETED: 'report_generation_completed',
+  REPORT_GENERATION_FAILED: 'report_generation_failed',
+  REPORT_AVAILABLE:         'report_available',
+
   // Keepalive
   // Browser live actions
   BROWSER_ACTION:           'browser_action',
@@ -161,6 +192,36 @@ const INITIAL_STAGES: PipelineStage[] = [
   { id: 'execution',      label: 'Test Execution',         status: 'pending' },
   { id: 'report',         label: 'Report',                 status: 'pending' },
 ];
+
+// Canonical pipeline order and stage-id normalization now live in
+// ./workflow-invariants (STAGE_ORDER, stageToId) so the single-active-stage
+// invariant logic can be shared and unit-tested in isolation.
+
+/**
+ * Monotonic stage update — a stage's status can only move forward, never
+ * regress:
+ *   pending → running → completed
+ *   pending → running → failed
+ * A terminal stage (completed/failed) can never change, and a running stage
+ * can never go back to pending. Identity updates are allowed.
+ */
+function monotonicStageUpdate(
+  stages: PipelineStage[],
+  id: string,
+  patch: Partial<PipelineStage>,
+): PipelineStage[] {
+  const s = stages.find((x) => x.id === id);
+  if (!s) return stages;
+  if (patch.status && patch.status !== s.status) {
+    if (s.status === 'completed' || s.status === 'failed') {
+      return stages; // terminal can't change
+    }
+    if (s.status === 'running' && patch.status === 'pending') {
+      return stages; // running → pending invalid
+    }
+  }
+  return updateStage(stages, id, patch);
+}
 
 export interface RunSnapshot {
   run_id: string;
@@ -450,6 +511,11 @@ export interface WorkflowState {
   executionStats: ExecutionStats;
   consoleLogs: string[];
 
+  // Allure report
+  reportStatus: 'idle' | 'generating' | 'generated' | 'failed' | 'unavailable';
+  reportPath: string | null;
+  reportError: string | null;
+
   // Dedup
   seenEventIds: Set<string>;
 
@@ -460,6 +526,7 @@ export interface WorkflowState {
   setSSEError: (msg: string | null) => void;
   hydrate: (snapshot: RunSnapshot) => void;
   hydrateArtifacts: (runId: string) => Promise<void>;
+  reconcile: (snapshot: RunSnapshot) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +576,21 @@ function eventToTimelineEntry(event: WorkflowEvent): TimelineEntry {
     crawl_completed:             `✓  Crawl Complete — ${data.pages_visited} pages`,
     browser_action:              `🤖 ${data.label || data.action}`,
     browser_frame:               `📷 Frame: ${data.url}`,
+    auth_started:                `🔐 Authentication Started — ${data.strategy ?? 'form'}`,
+    auth_url_discovered:         `🔗 Auth URL: ${data.url}`,
+    auth_form_detected:          `📝 Login Form Detected`,
+    auth_submitted:              `📤 Credentials Submitted`,
+    auth_redirect_started:       `↗  Auth Redirect Started`,
+    auth_redirect_completed:     `✓  Auth Redirect Completed`,
+    oauth_detected:              `🔑 OAuth/SSO Flow Detected`,
+    mfa_required:                `🔐 MFA Required — awaiting verification`,
+    auth_verification_started:   `🔍 Verifying Authentication`,
+    authenticated:               `✅ Authenticated`,
+    authentication_failed:       `❌ Authentication Failed`,
+    authentication_timeout:      `⏱  Authentication Timed Out`,
+    authentication_unknown:      `❓ Authentication State Unknown`,
+    auth_strategy_unsupported:   `⚠  Auth Strategy Unsupported`,
+    auth_url_not_found:          `⚠  Auth URL Not Found`,
     inventory_started:        '📊 Building Inventory...',
     inventory_generated:      `📦 Inventory Generated — ${data.page_count} pages, ${data.form_count} forms`,
     llm_call_started:         `🤖 LLM Call Started — ${data.purpose ?? 'Generating'}`,
@@ -552,6 +634,10 @@ function eventToTimelineEntry(event: WorkflowEvent): TimelineEntry {
     test_failed:              `✗  Test Failed: ${data.name}`,
     test_skipped:             `⏭  Test Skipped: ${data.name}`,
     execution_completed:      '🏁 Execution Completed',
+    report_generation_started: '📊 Generating Allure Report...',
+    report_generation_completed: '✅ Allure Report Generated',
+    report_generation_failed: '❌ Allure Report Generation Failed',
+    report_available:         '📈 Allure Report Ready',
     ping:                     'ping',
   };
 
@@ -562,6 +648,9 @@ function eventToTimelineEntry(event: WorkflowEvent): TimelineEntry {
     test_failed:        'error',
     code_generation_failed: 'error',
     code_generation_completed: 'success',
+    report_generation_completed: 'success',
+    report_generation_failed: 'error',
+    report_available: 'success',
     human_review_required: 'warning',
     workflow_paused:    'warning',
   };
@@ -614,7 +703,30 @@ function buildFileTree(files: GeneratedFile[]): GeneratedFileNode[] {
 // Store
 // ---------------------------------------------------------------------------
 
-function makeInitialState(runId: string | null = null): Omit<WorkflowState, 'dispatch' | 'reset' | 'setSSEConnected' | 'setSSEError' | 'hydrate' | 'hydrateArtifacts'> {
+// ---------------------------------------------------------------------------
+// High-frequency event throttling
+//
+// These events are emitted by the backend many times per second (per LLM
+// streaming chunk / browser frame / progress tick). Dispatching each one
+// re-renders every subscribed component and can exceed React's maximum
+// update depth. They are throttled to at most one update per THROTTLE_MS
+// per type, and they are never appended to the timeline.
+// ---------------------------------------------------------------------------
+
+const THROTTLED_EVENT_TYPES = new Set<string>([
+  EventType.BROWSER_FRAME,
+  EventType.CURRENT_ACTIVITY_UPDATE,
+  EventType.GENERATION_PROGRESS_UPDATE,
+  EventType.FILE_PROGRESS,
+  EventType.ANALYSIS_PROGRESS,
+  EventType.CONFIDENCE_UPDATE,
+]);
+
+const THROTTLE_MS = 250;
+
+const lastDispatchAt = new Map<string, number>();
+
+function makeInitialState(runId: string | null = null): Omit<WorkflowState, 'dispatch' | 'reset' | 'setSSEConnected' | 'setSSEError' | 'hydrate' | 'hydrateArtifacts' | 'reconcile'> {
   return {
     runId,
     sseConnected: false,
@@ -671,6 +783,9 @@ function makeInitialState(runId: string | null = null): Omit<WorkflowState, 'dis
     testResults: [],
     executionStats: { total: 0, passed: 0, failed: 0, skipped: 0, passRate: 0 },
     consoleLogs: [],
+    reportStatus: 'idle',
+    reportPath: null,
+    reportError: null,
   };
 }
 
@@ -684,10 +799,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   hydrate: (snapshot: RunSnapshot) => {
     const status = snapshot.status;
-    const completed = new Set(snapshot.completed_stages || []);
-    const failed = snapshot.failed_stage;
+    const completed = new Set((snapshot.completed_stages || []).map(stageToId));
+    const failed = snapshot.failed_stage ? stageToId(snapshot.failed_stage) : null;
     const isWorkflowCompleted = status === 'completed';
-    const stageToId = (s: string) => s === 'inventory_aggregator' ? 'inventory' : s;
 
     const stages = INITIAL_STAGES.map((stage) => {
       const mappedId = stageToId(stage.id);
@@ -707,10 +821,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
 
     let overallStatus: WorkflowState['overallStatus'] = 'idle';
+    const isPastReview = completed.has('human_review') || completed.has('code_generation') || completed.has('execution');
     if (status === 'completed') overallStatus = 'completed';
     else if (status === 'failed') overallStatus = 'failed';
-    else if (status === 'paused') overallStatus = 'paused';
+    else if (status === 'paused') overallStatus = isPastReview ? 'running' : 'paused';
     else if (status === 'running') overallStatus = 'running';
+    else if (isPastReview && status !== 'completed' && status !== 'failed') overallStatus = 'running';
 
     const isInventoryDone = completed.has('inventory') || completed.has('inventory_aggregator');
     const isTestDesignDone = completed.has('test_design') || completed.has('human_review') || completed.has('code_generation') || status === 'completed';
@@ -731,7 +847,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       stages,
       overallStatus,
       timeline: get().timeline.length > 0 ? get().timeline : defaultTimeline,
-      humanReviewRequired: completed.has('test_design') && !completed.has('human_review') && !completed.has('code_generation'),
+      humanReviewRequired: completed.has('test_design') && !completed.has('human_review') && !completed.has('code_generation') && !completed.has('execution') && status !== 'completed',
       testPlanGenerated: isTestDesignDone,
       inventorySummary: isInventoryDone ? (get().inventorySummary || { page_count: 1, form_count: 0, link_count: 0, button_count: 6, input_count: 1, screenshot_count: 1 }) : null,
       ...(isCodeGenDone && {
@@ -743,207 +859,325 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
+  /**
+   * Monotonic reconciliation against the authoritative REST snapshot.
+   *
+   * This is the catch-up mechanism for missed/dropped SSE events. It runs on a
+   * timer (from the page's ``useRunState`` poll) and only ever ADVANCES stage
+   * state forward — it never regresses:
+   *
+   *   * a stage reported completed/failed by the backend advances from
+   *     pending/running → completed/failed if the frontend is behind;
+   *   * a ``completed``/``failed`` stage is never turned back to running/pending;
+   *   * a ``running`` stage is never turned back to pending.
+   *
+   * SSE remains the primary real-time mechanism; this only converges the
+   * eventual state when an SSE transition is missed.
+   */
+  reconcile: (snapshot: RunSnapshot) => {
+    const status = snapshot.status;
+    const completed = new Set((snapshot.completed_stages || []).map(stageToId).filter((x): x is string => !!x));
+    const failed = snapshot.failed_stage ? stageToId(snapshot.failed_stage) : null;
+    const currentStage = snapshot.current_stage ? stageToId(snapshot.current_stage) : null;
+    const nextStage = snapshot.next_stage ? stageToId(snapshot.next_stage) : null;
+
+    set((state) => {
+      // 1. Advance to completed/failed based on the authoritative backend
+      //    snapshot (never regresses a terminal stage; never fabricates
+      //    completion for a stage the backend has not confirmed completed).
+      let stages = state.stages.map((s) => {
+        if (s.status === 'completed' || s.status === 'failed') return s; // terminal
+        if (failed === s.id) {
+          return { ...s, status: 'failed' as const, error: s.error || (snapshot.last_error ?? undefined) };
+        }
+        if (completed.has(s.id)) {
+          return { ...s, status: 'completed' as const, completedAt: s.completedAt || new Date().toISOString() };
+        }
+        return s;
+      });
+
+      // 2. Resolve the single authoritative active stage (current_stage →
+      //    next_stage → completed_stages + STAGE_ORDER) and enforce the
+      //    single-active-stage invariant. This replaces the old
+      //    "STAGE_ORDER.find(first pending)" logic that could mark a
+      //    predecessor — or a future stage while human_review was
+      //    waiting_for_user — as running.
+      const active = resolveActiveStage({ status, currentStage, nextStage, completed, stages });
+      stages = ensureSingleActiveStage(stages, active, completed, status);
+
+      // Overall status — monotonic (never goes completed→running etc.).
+      let overallStatus = state.overallStatus;
+      if (status === 'completed') overallStatus = 'completed';
+      else if (status === 'failed') overallStatus = 'failed';
+      else if (status === 'running' && overallStatus !== 'completed' && overallStatus !== 'failed') overallStatus = 'running';
+      else if (status === 'paused') overallStatus = state.humanReviewRequired ? 'paused' : 'running';
+
+      let humanReviewRequired = state.humanReviewRequired;
+      if (completed.has('human_review')) {
+        humanReviewRequired = false;
+      } else if (stages.find((x) => x.id === 'human_review')?.status === 'waiting_for_user') {
+        humanReviewRequired = true;
+      }
+
+      // Clear stale code-generation activity when the backend reports the
+      // stage complete, and switch the "current activity" to execution once
+      // the pipeline moves into the execution stage.
+      let codeGenerationProgress = state.codeGenerationProgress;
+      let codeGenerationActivity = state.codeGenerationActivity;
+      const codeGenDone = completed.has('code_generation');
+      if (codeGenDone) {
+        if (codeGenerationProgress < 100) codeGenerationProgress = 100;
+        const activeStage = STAGE_ORDER.find((id) => !completed.has(id));
+        if (activeStage === 'execution') {
+          if (codeGenerationActivity?.step !== 'execution') {
+            codeGenerationActivity = { label: 'Test execution running', step: 'execution', startedAt: new Date().toISOString() };
+          }
+        } else if (!codeGenerationActivity || codeGenerationActivity.step === 'activity_update' || codeGenerationActivity.step === 'file_progress') {
+          codeGenerationActivity = { label: 'Code generation completed', step: 'completed', startedAt: codeGenerationActivity?.startedAt || new Date().toISOString() };
+        }
+      }
+
+      return { stages, overallStatus, humanReviewRequired, codeGenerationProgress, codeGenerationActivity };
+    });
+  },
+
   hydrateArtifacts: async (runId: string) => {
     const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
-    // 1. Fetch Inventory
-    try {
-      const res = await fetch(`${apiBase}/api/v1/runs/${runId}/inventory`);
-      if (res.ok) {
-        const inv = await res.json();
-        const stats = inv.statistics || inv.metadata || {};
-        const pages = inv.pages || [];
-        const forms = inv.forms || [];
-        const inputs = inv.inputs || [];
-        const buttons = inv.buttons || [];
-        const links = inv.links || [];
-        set({
-          inventorySummary: {
-            page_count: stats.total_pages ?? pages.length ?? 1,
-            form_count: stats.total_forms ?? forms.length ?? 0,
-            link_count: stats.total_links ?? links.length ?? 0,
-            button_count: stats.total_buttons ?? buttons.length ?? 6,
-            input_count: stats.total_inputs ?? inputs.length ?? 1,
-            screenshot_count: 1,
-          },
-        });
-      }
-    } catch { /* ignore */ }
+    await Promise.allSettled([
+      // 1. Fetch Inventory
+      (async () => {
+        try {
+          const res = await fetch(`${apiBase}/api/v1/runs/${runId}/inventory`);
+          if (res.ok) {
+            const inv = await res.json();
+            const stats = inv.statistics || inv.metadata || {};
+            const pages = inv.pages || [];
+            const forms = inv.forms || [];
+            const inputs = inv.inputs || [];
+            const buttons = inv.buttons || [];
+            const links = inv.links || [];
+            set({
+              inventorySummary: {
+                page_count: stats.total_pages ?? pages.length ?? 1,
+                form_count: stats.total_forms ?? forms.length ?? 0,
+                link_count: stats.total_links ?? links.length ?? 0,
+                button_count: stats.total_buttons ?? buttons.length ?? 6,
+                input_count: stats.total_inputs ?? inputs.length ?? 1,
+                screenshot_count: 1,
+              },
+            });
+          }
+        } catch { /* ignore */ }
+      })(),
 
-    // 2. Fetch Test Plan
-    try {
-      const res = await fetch(`${apiBase}/api/v1/runs/${runId}/test-plan`);
-      if (res.ok) {
-        const tp = await res.json();
-        const rawModules = Array.isArray(tp.modules) ? tp.modules : (Array.isArray(tp.test_suites) ? tp.test_suites : []);
-        const rawScenarios = Array.isArray(tp.test_scenarios) ? tp.test_scenarios : [];
+      // 2. Fetch Test Plan
+      (async () => {
+        try {
+          const res = await fetch(`${apiBase}/api/v1/runs/${runId}/test-plan`);
+          if (res.ok) {
+            const tp = await res.json();
+            const rawModules = Array.isArray(tp.modules) ? tp.modules : (Array.isArray(tp.test_suites) ? tp.test_suites : []);
+            const rawScenarios = Array.isArray(tp.test_scenarios) ? tp.test_scenarios : [];
 
-        const safeStr = (val: any, fallback: string = ''): string => {
-          if (typeof val === 'string') return val;
-          if (typeof val === 'number') return String(val);
-          return fallback;
-        };
+            const safeStr = (val: any, fallback: string = ''): string => {
+              if (typeof val === 'string') return val;
+              if (typeof val === 'number') return String(val);
+              return fallback;
+            };
 
-        const detectedModules: ModuleInfo[] = rawModules.map((m: any, i: number) => {
-          const mObj = (m && typeof m === 'object') ? m : {};
-          return {
-            name: safeStr(mObj.name, `Module ${i + 1}`),
-            description: safeStr(mObj.description, ''),
-            pages: Array.isArray(mObj.pages) ? mObj.pages.map((p: any) => safeStr(p)) : [],
-            scenarioCount: typeof mObj.scenarios === 'number' ? mObj.scenarios : 20,
-            moduleIndex: i + 1,
-            totalModules: rawModules.length,
-          };
-        });
+            const detectedModules: ModuleInfo[] = rawModules.map((m: any, i: number) => {
+              const mObj = (m && typeof m === 'object') ? m : {};
+              return {
+                name: safeStr(mObj.name, `Module ${i + 1}`),
+                description: safeStr(mObj.description, ''),
+                pages: Array.isArray(mObj.pages) ? mObj.pages.map((p: any) => safeStr(p)) : [],
+                scenarioCount: typeof mObj.scenarios === 'number' ? mObj.scenarios : 20,
+                moduleIndex: i + 1,
+                totalModules: rawModules.length,
+              };
+            });
 
-        const defaultModName = detectedModules[0]?.name ?? 'Login Module';
+            const defaultModName = detectedModules[0]?.name ?? 'Login Module';
 
-        const generatedScenarios: ScenarioInfo[] = rawScenarios.map((sc: any, i: number) => {
-          const meta = (sc && typeof sc === 'object' && sc.metadata && typeof sc.metadata === 'object')
-            ? sc.metadata
-            : ((sc && typeof sc === 'object') ? sc : {});
+            const generatedScenarios: ScenarioInfo[] = rawScenarios.map((sc: any, i: number) => {
+              const meta = (sc && typeof sc === 'object' && sc.metadata && typeof sc.metadata === 'object')
+                ? sc.metadata
+                : ((sc && typeof sc === 'object') ? sc : {});
 
-          return {
-            id: safeStr(meta.id || sc.id, `TC-${String(i + 1).padStart(3, '0')}`),
-            title: safeStr(meta.title || sc.title || meta.name, `Test Scenario ${i + 1}`),
-            description: safeStr(meta.description || sc.description || meta.expected_result, ''),
-            module: safeStr(meta.module || sc.module, defaultModName),
-            priority: safeStr(meta.priority || sc.priority, 'medium'),
-            category: safeStr(meta.category || sc.category, 'functional'),
-            riskLevel: safeStr(meta.risk_level || meta.risk || sc.riskLevel, 'medium'),
-            targetPage: safeStr(meta.target_page || sc.targetPage, 'dashboard'),
-            scenarioIndex: i + 1,
-            totalScenarios: rawScenarios.length,
-          };
-        });
+              return {
+                id: safeStr(meta.id || sc.id, `TC-${String(i + 1).padStart(3, '0')}`),
+                title: safeStr(meta.title || sc.title || meta.name, `Test Scenario ${i + 1}`),
+                description: safeStr(meta.description || sc.description || meta.expected_result, ''),
+                module: safeStr(meta.module || sc.module, defaultModName),
+                priority: safeStr(meta.priority || sc.priority, 'medium'),
+                category: safeStr(meta.category || sc.category, 'functional'),
+                riskLevel: safeStr(meta.risk_level || meta.risk || sc.riskLevel, 'medium'),
+                targetPage: safeStr(meta.target_page || sc.targetPage, 'dashboard'),
+                scenarioIndex: i + 1,
+                totalScenarios: rawScenarios.length,
+              };
+            });
 
-        set({
-          testPlanGenerated: true,
-          testPlanScenarioCount: rawScenarios.length || 20,
-          detectedModules:
-            detectedModules.length > 0
-              ? detectedModules
-              : [
-                  {
-                    name: 'Login Module',
-                    description: 'Core Application',
-                    pages: ['/login', '/dashboard'],
-                    scenarioCount: 20,
-                    moduleIndex: 1,
-                    totalModules: 1,
-                  },
-                ],
-          generatedScenarios: generatedScenarios,
-        });
-      }
-    } catch { /* ignore */ }
+            set({
+              testPlanGenerated: true,
+              testPlanScenarioCount: rawScenarios.length || 20,
+              detectedModules:
+                detectedModules.length > 0
+                  ? detectedModules
+                  : [
+                      {
+                        name: 'Login Module',
+                        description: 'Core Application',
+                        pages: ['/login', '/dashboard'],
+                        scenarioCount: 20,
+                        moduleIndex: 1,
+                        totalModules: 1,
+                      },
+                    ],
+              generatedScenarios: generatedScenarios,
+            });
+          }
+        } catch { /* ignore */ }
+      })(),
 
-    // 3. Fetch Crawler
-    try {
-      const res = await fetch(`${apiBase}/api/v1/runs/${runId}/crawler`);
-      if (res.ok) {
-        const cr = await res.json();
-        const cs = cr.crawl_summary || cr.summary || {};
-        const vp = cr.visited_pages || [];
-        set((s) => ({
-          crawlStats: {
-            pagesCrawled: cs.pages_visited || vp.length || 1,
-            pagesVisited: cs.pages_visited || vp.length || 1,
-            formsFound: cr.forms?.length || 0,
-            inputsFound: cr.inputs?.length || 1,
-            buttonsFound: cr.buttons?.length || 6,
-            linksFound: cr.links?.length || 0,
-          },
-          browserActivity: {
-            ...s.browserActivity,
-            status: 'done',
-            pagesVisited: cs.pages_visited || vp.length || 1,
-            currentUrl: vp[0]?.url || 'https://rrf-portal.dfstage.space/dashboard',
-            currentTitle: vp[0]?.title || 'SWIFT - Resource Requisition Management',
-          },
-        }));
-      }
-    } catch { /* ignore */ }
+      // 3. Fetch Crawler
+      (async () => {
+        try {
+          const res = await fetch(`${apiBase}/api/v1/runs/${runId}/crawler`);
+          if (res.ok) {
+            const cr = await res.json();
+            const cs = cr.crawl_summary || cr.summary || {};
+            const vp = cr.visited_pages || [];
+            set((s) => ({
+              crawlStats: {
+                pagesCrawled: cs.pages_visited || vp.length || 1,
+                pagesVisited: cs.pages_visited || vp.length || 1,
+                formsFound: cr.forms?.length || 0,
+                inputsFound: cr.inputs?.length || 1,
+                buttonsFound: cr.buttons?.length || 6,
+                linksFound: cr.links?.length || 0,
+              },
+              browserActivity: {
+                ...s.browserActivity,
+                status: 'done',
+                pagesVisited: cs.pages_visited || vp.length || 1,
+                currentUrl: vp[0]?.url || 'https://rrf-portal.dfstage.space/dashboard',
+                currentTitle: vp[0]?.title || 'SWIFT - Resource Requisition Management',
+              },
+            }));
+          }
+        } catch { /* ignore */ }
+      })(),
 
-    // 4. Fetch Execution Results
-    try {
-      const exRes = await fetch(`${apiBase}/api/v1/runs/${runId}/execution`);
-      if (exRes.ok) {
-        const ex = await exRes.json();
-        const exTests: TestResult[] = (ex.tests || []).map((t: any, i: number) => ({
-          id: t.id || `test-${i}`,
-          name: t.name || `Test ${i + 1}`,
-          status: (t.status === 'passed' || t.status === 'failed' || t.status === 'skipped') ? t.status : 'failed',
-          duration: typeof t.duration === 'number' ? t.duration : undefined,
-          error: typeof t.error === 'string' ? t.error : undefined,
-          timestamp: t.timestamp || new Date().toISOString(),
-        }));
+      // 4. Fetch Execution Results
+      (async () => {
+        try {
+          const exRes = await fetch(`${apiBase}/api/v1/runs/${runId}/execution`);
+          if (exRes.ok) {
+            const ex = await exRes.json();
+            const exTests: TestResult[] = (ex.tests || []).map((t: any, i: number) => ({
+              id: t.id || `test-${i}`,
+              name: t.name || `Test ${i + 1}`,
+              status: (t.status === 'passed' || t.status === 'failed' || t.status === 'skipped') ? t.status : 'failed',
+              duration: typeof t.duration === 'number' ? t.duration : undefined,
+              error: typeof t.error === 'string' ? t.error : undefined,
+              timestamp: t.timestamp || new Date().toISOString(),
+            }));
 
-        const exSum = ex.summary || {};
-        const exStats: ExecutionStats = {
-          total: exSum.total || exTests.length,
-          passed: exSum.passed || exTests.filter((t: TestResult) => t.status === 'passed').length,
-          failed: exSum.failed || exTests.filter((t: TestResult) => t.status === 'failed').length,
-          skipped: exSum.skipped || exTests.filter((t: TestResult) => t.status === 'skipped').length,
-          passRate: exSum.pass_rate || 0,
-        };
+            const exSum = ex.summary || {};
+            const exStats: ExecutionStats = {
+              total: exSum.total || exTests.length,
+              passed: exSum.passed || exTests.filter((t: TestResult) => t.status === 'passed').length,
+              failed: exSum.failed || exTests.filter((t: TestResult) => t.status === 'failed').length,
+              skipped: exSum.skipped || exTests.filter((t: TestResult) => t.status === 'skipped').length,
+              passRate: exSum.pass_rate || 0,
+            };
 
-        if (ex.execution_complete || exTests.length > 0) {
-          set((s) => ({
-            testResults: exTests,
-            executionStats: exStats,
-            stages: s.stages.map((st) =>
-              st.id === 'execution' && st.status === 'pending'
-                ? { ...st, status: 'completed' as const }
-                : st.id === 'report' && st.status === 'pending'
-                ? { ...st, status: 'completed' as const }
-                : st
-            ),
-          }));
-        }
-      }
-    } catch { /* ignore */ }
+            if (ex.execution_complete || exTests.length > 0) {
+              const isAllFailed = exStats.failed > 0 && exStats.passed === 0;
+              set((s) => ({
+                testResults: exTests,
+                executionStats: exStats,
+                stages: s.stages.map((st) =>
+                  st.id === 'execution'
+                    ? { ...st, status: isAllFailed ? ('failed' as const) : ('completed' as const) }
+                    : st.id === 'report'
+                    ? { ...st, status: isAllFailed ? ('failed' as const) : ('completed' as const) }
+                    : st
+                ),
+                overallStatus: isAllFailed ? 'failed' : 'completed',
+              }));
+            }
+          }
+        } catch { /* ignore */ }
+      })(),
 
-    // 5. Fetch Screenshots
-    try {
-      const ssRes = await fetch(`${apiBase}/api/v1/runs/${runId}/screenshots-list`);
-      if (ssRes.ok) {
-        const ssData = await ssRes.json();
-        const shots: Screenshot[] = (ssData.screenshots || []).map((s: any) => ({
-          id: s.id,
-          filename: s.filename,
-          url: `${apiBase}${s.url}`,
-          title: s.title || 'Captured Page',
-          timestamp: s.timestamp || new Date().toISOString(),
-        }));
+      // 5. Fetch Allure report status
+      (async () => {
+        try {
+          const repRes = await fetch(`${apiBase}/api/v1/runs/${runId}/report/status`);
+          if (repRes.ok) {
+            const rep = await repRes.json();
+            set({
+              reportStatus: rep.status === 'generated' ? 'generated' : rep.status === 'failed' ? 'failed' : 'unavailable',
+              reportPath: rep.report_path ?? null,
+            });
+          }
+        } catch { /* ignore */ }
+      })(),
 
-        if (shots.length > 0) {
-          const latest = shots[shots.length - 1];
-          set((state) => ({
-            screenshots: shots,
-            liveFrame: state.liveFrame ?? {
-              filename: latest.filename,
-              url: latest.url,
-              title: latest.title || 'Page Screenshot',
-              action: 'screenshot',
-              timestamp: latest.timestamp,
-            },
-            browserActivity: {
-              ...state.browserActivity,
-              status: 'done',
-              currentUrl: state.browserActivity.currentUrl || 'https://rrf-portal.dfstage.space/',
-            },
-          }));
-        }
-      }
-    } catch { /* ignore */ }
+      // 6. Fetch Screenshots
+      (async () => {
+        try {
+          const ssRes = await fetch(`${apiBase}/api/v1/runs/${runId}/screenshots-list`);
+          if (ssRes.ok) {
+            const ssData = await ssRes.json();
+            const shots: Screenshot[] = (ssData.screenshots || []).map((s: any) => ({
+              id: s.id,
+              filename: s.filename,
+              url: `${apiBase}${s.url}`,
+              title: s.title || 'Captured Page',
+              timestamp: s.timestamp || new Date().toISOString(),
+            }));
 
+            if (shots.length > 0) {
+              const latest = shots[shots.length - 1];
+              set((state) => ({
+                screenshots: shots,
+                liveFrame: state.liveFrame ?? {
+                  filename: latest.filename,
+                  url: latest.url,
+                  title: latest.title || 'Page Screenshot',
+                  action: 'screenshot',
+                  timestamp: latest.timestamp,
+                },
+                browserActivity: {
+                  ...state.browserActivity,
+                  status: 'done',
+                  currentUrl: state.browserActivity.currentUrl || 'https://rrf-portal.dfstage.space/',
+                },
+              }));
+            }
+          }
+        } catch { /* ignore */ }
+      })(),
+    ]);
   },
 
   dispatch: (event: WorkflowEvent) => {
     if (event.type === 'ping') return;
 
     const data = event.data as Record<string, any>;
+
+    // Throttle high-frequency events so rapid SSE bursts cannot cause
+    // cascading re-renders (React "Maximum update depth exceeded").
+    if (THROTTLED_EVENT_TYPES.has(event.type)) {
+      const now = Date.now();
+      const last = lastDispatchAt.get(event.type) ?? 0;
+      if (now - last < THROTTLE_MS) return;
+      lastDispatchAt.set(event.type, now);
+    }
 
     set((state) => {
       // Deduplicate: skip if we already processed this event_id
@@ -956,8 +1190,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         newSeen.clear();
       }
 
+      // Progress/frame ticks update live fields only — keep them out of the
+      // timeline so they don't churn the array (and every timeline subscriber)
+      // on every tick.
       const entry = eventToTimelineEntry(event);
-      const timeline = [...state.timeline, entry].slice(-500);
+      const timeline = THROTTLED_EVENT_TYPES.has(event.type)
+        ? state.timeline
+        : [...state.timeline, entry].slice(-500);
 
       let stages = state.stages;
       let overallStatus = state.overallStatus;
@@ -991,6 +1230,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       let scenariosImplemented = state.scenariosImplemented;
       let testResults = state.testResults;
       let executionStats = state.executionStats;
+      let reportStatus = state.reportStatus;
+      let reportPath = state.reportPath;
+      let reportError = state.reportError;
       let elapsed = state.elapsed;
       let currentAction = state.currentAction;
       let liveFrame = state.liveFrame;
@@ -1008,6 +1250,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
         case EventType.WORKFLOW_FAILED:
           overallStatus = 'failed';
+          // Never leave the browser workspace hanging on "Loading..." after a
+          // failure — reset transient launch/navigation/action state so the last
+          // captured frame is shown instead of an eternal spinner.
+          browserActivity = { ...browserActivity, status: 'idle' };
+          currentAction = null;
+          if (data.stage) {
+            stages = updateStage(stages, data.stage as string, {
+              status: 'failed',
+              error: (data.error as string) || 'Workflow failed',
+            });
+          }
           break;
 
         case EventType.WORKFLOW_PAUSED:
@@ -1017,24 +1270,52 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           break;
 
         // ── Stage lifecycle ──────────────────────────────────────────────
-        case EventType.STAGE_STARTED:
-          stages = updateStage(stages, data.stage as string, {
-            status: 'running',
-            startedAt: event.timestamp,
-            label: data.label as string || stages.find(s => s.id === data.stage)?.label || data.stage as string,
-          });
+        case EventType.STAGE_STARTED: {
+          const startedStage = data.stage as string;
+          // Predecessor + terminal guard: a stage may only enter `running`
+          // once every predecessor is completed and it is not itself terminal.
+          // This prevents stale/replayed events from promoting a stage (or a
+          // future stage) to running while a predecessor is incomplete
+          // (INVARIANTS 2, 3, 4).
+          if (canStartStage(startedStage, stages)) {
+            stages = updateStage(stages, startedStage, {
+              status: 'running',
+              startedAt: event.timestamp,
+              label: data.label as string || stages.find(s => s.id === startedStage)?.label || startedStage,
+            });
+            // Enforce the single-active-stage invariant: demote any other
+            // stage that is incorrectly still `running` (INVARIANT 1).
+            stages = demoteToSingleActive(stages, startedStage);
+          }
+          if (startedStage !== 'human_review' && overallStatus === 'paused') {
+            overallStatus = 'running';
+            humanReviewRequired = false;
+          }
           break;
+        }
 
-        case EventType.STAGE_COMPLETED:
-          stages = updateStage(stages, data.stage as string, {
+        case EventType.STAGE_COMPLETED: {
+          const completedStage = data.stage as string;
+          stages = monotonicStageUpdate(stages, completedStage, {
             status: 'completed',
             completedAt: event.timestamp,
             data: data,
           });
+          if (completedStage === 'human_review') {
+            overallStatus = 'running';
+            humanReviewRequired = false;
+          }
+          if (completedStage === 'execution') {
+            stages = monotonicStageUpdate(stages, 'execution', { status: 'completed', completedAt: event.timestamp });
+            stages = monotonicStageUpdate(stages, 'report', { status: 'completed', completedAt: event.timestamp });
+            overallStatus = 'completed';
+            codeGenerationActivity = { label: 'Test execution completed', step: 'execution_completed', startedAt: event.timestamp };
+          }
           break;
+        }
 
         case EventType.STAGE_FAILED:
-          stages = updateStage(stages, data.stage as string, {
+          stages = monotonicStageUpdate(stages, data.stage as string, {
             status: 'failed',
             completedAt: event.timestamp,
             error: data.error as string,
@@ -1475,6 +1756,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           codeGenerationProgress = 100;
           codeGenerationActivity = { label: 'Code generation completed', step: 'completed', startedAt: event.timestamp };
           llmActivityState = 'idle';
+          stages = monotonicStageUpdate(stages, 'code_generation', { status: 'completed', completedAt: event.timestamp });
+          overallStatus = 'running';
+          humanReviewRequired = false;
           if (typeof data.files_generated === 'number') filesGenerated = data.files_generated;
           if (typeof data.page_objects_count === 'number') pageObjectsCount = data.page_objects_count;
           if (typeof data.test_files_count === 'number') testFilesCount = data.test_files_count;
@@ -1485,12 +1769,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         case EventType.CODE_GENERATION_FAILED:
           codeGenerationError = (data.error as string) || 'Code generation failed';
           codeGenerationActivity = { label: codeGenerationError, step: 'failed', startedAt: event.timestamp };
+          stages = monotonicStageUpdate(stages, 'code_generation', { status: 'failed', completedAt: event.timestamp, error: codeGenerationError });
           overallStatus = 'failed';
           llmActivityState = 'idle';
           break;
 
         case EventType.PLAYWRIGHT_GENERATED:
           codeGenerationProgress = 100;
+          stages = monotonicStageUpdate(stages, 'code_generation', { status: 'completed', completedAt: event.timestamp });
           if (typeof data.files_generated === 'number') filesGenerated = data.files_generated;
           if (typeof data.page_objects_count === 'number') pageObjectsCount = data.page_objects_count;
           if (typeof data.test_files_count === 'number') testFilesCount = data.test_files_count;
@@ -1520,6 +1806,15 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           break;
 
         // ── Execution ────────────────────────────────────────────────────
+        case EventType.EXECUTION_STARTED:
+          if (canStartStage('execution', stages)) {
+            stages = updateStage(stages, 'execution', { status: 'running', startedAt: event.timestamp });
+            stages = demoteToSingleActive(stages, 'execution');
+          }
+          overallStatus = 'running';
+          humanReviewRequired = false;
+          codeGenerationActivity = { label: 'Test execution started', step: 'execution', startedAt: event.timestamp };
+          break;
         case EventType.TEST_PASSED: {
           const r: TestResult = {
             id: event.event_id, name: data.name as string, status: 'passed',
@@ -1559,7 +1854,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }
 
         case EventType.EXECUTION_COMPLETED:
-          stages = updateStage(stages, 'report', { status: 'running', startedAt: event.timestamp });
+          stages = monotonicStageUpdate(stages, 'execution', { status: 'completed', completedAt: event.timestamp });
+          stages = monotonicStageUpdate(stages, 'report', { status: 'completed', completedAt: event.timestamp });
+          overallStatus = 'completed';
+          codeGenerationActivity = { label: 'Test execution completed', step: 'execution_completed', startedAt: event.timestamp };
+          break;
+
+        // ── Allure report ─────────────────────────────────────────────────
+        case EventType.REPORT_GENERATION_STARTED:
+          reportStatus = 'generating';
+          if (canStartStage('report', stages)) {
+            stages = updateStage(stages, 'report', { status: 'running', startedAt: event.timestamp });
+            stages = demoteToSingleActive(stages, 'report');
+          }
+          codeGenerationActivity = { label: 'Generating Allure report', step: 'report_generation', startedAt: event.timestamp };
+          break;
+
+        case EventType.REPORT_GENERATION_COMPLETED:
+          reportStatus = 'generated';
+          reportPath = (data.report_path as string) ?? reportPath;
+          stages = monotonicStageUpdate(stages, 'report', { status: 'completed', completedAt: event.timestamp });
+          break;
+
+        case EventType.REPORT_GENERATION_FAILED:
+          reportStatus = 'failed';
+          reportError = (data.error as string) ?? null;
+          reportPath = null;
+          stages = monotonicStageUpdate(stages, 'report', { status: 'failed', completedAt: event.timestamp, error: (data.error as string) ?? undefined });
+          break;
+
+        case EventType.REPORT_AVAILABLE:
+          reportStatus = 'generated';
+          reportPath = (data.report_path as string) ?? reportPath;
+          stages = monotonicStageUpdate(stages, 'report', { status: 'completed', completedAt: event.timestamp });
           break;
       }
 
@@ -1597,11 +1924,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         scenariosImplemented,
         testResults,
         executionStats,
+        reportStatus,
+        reportPath,
+        reportError,
         elapsed,
         currentAction,
         liveFrame,
         seenEventIds: newSeen,
       };
     });
+
+    if (
+      event.type === EventType.EXECUTION_COMPLETED ||
+      (event.type === EventType.STAGE_COMPLETED && data.stage === 'execution')
+    ) {
+      void get().hydrateArtifacts(event.run_id);
+    }
   },
 }));

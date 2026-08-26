@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { projectsService, runsService, dashboardService } from '@/services/api.service';
+import { projectsService, runsService, dashboardService, promptsService, modelsService } from '@/services/api.service';
 import { CreateProjectRequest, PaginationParams } from '@/types/api';
 
 // Query Keys
@@ -17,7 +17,16 @@ export const queryKeys = {
   dashboardRecentProjects: ['dashboard', 'recent-projects'] as const,
   runStatus: (id: string) => ['runs', id, 'status'] as const,
   latestRun: (projectId: string) => ['projects', projectId, 'latest-run'] as const,
+  models: ['models'] as const,
 };
+
+export function useModels() {
+  return useQuery({
+    queryKey: queryKeys.models,
+    queryFn: () => modelsService.getAll(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
 
 // Projects Hooks
 export function useProjects() {
@@ -100,8 +109,8 @@ export function useSaveProjectPrompt() {
 
 export function useAnalyzePrompt() {
   return useMutation({
-    mutationFn: ({ projectId, userPrompt }: { projectId: string; userPrompt: string }) =>
-      runsService.analyzePrompt(projectId, userPrompt),
+    mutationFn: ({ projectId, userPrompt, model }: { projectId: string; userPrompt: string; model?: string }) =>
+      runsService.analyzePrompt(projectId, userPrompt, model),
   });
 }
 
@@ -141,7 +150,7 @@ export function useCreateRun() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: ({ projectId, userPrompt }: { projectId: string; userPrompt?: string }) => runsService.create(projectId, userPrompt),
+    mutationFn: ({ projectId, userPrompt, model }: { projectId: string; userPrompt?: string; model?: string }) => runsService.create(projectId, userPrompt, model),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.runs });
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboardRecentRuns });
@@ -287,5 +296,11 @@ export function useLatestRun(projectId: string) {
       const status = query.state.data?.status;
       return status === 'in_progress' || status === 'pending' ? 5000 : false;
     },
+  });
+}
+
+export function useOptimizePrompt() {
+  return useMutation({
+    mutationFn: ({ prompt, model }: { prompt: string; model?: string }) => promptsService.optimize(prompt, model),
   });
 }

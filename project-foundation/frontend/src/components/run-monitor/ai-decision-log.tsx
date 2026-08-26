@@ -86,11 +86,11 @@ export function AIDecisionLog() {
   }
 
   return (
-    <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-zinc-800 bg-zinc-900">
-        <ListChecks className="h-3.5 w-3.5 text-blue-400" />
-        <span className="text-[10px] text-zinc-400 uppercase tracking-wider font-semibold">AI Activity Log</span>
-        <span className="ml-auto text-[10px] text-zinc-600 font-mono">{entries.length} events</span>
+    <div className="border border-border rounded-xl bg-card shadow-2xs overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/60">
+        <ListChecks className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">AI Activity Log</span>
+        <span className="ml-auto text-[10px] text-muted-foreground font-mono font-bold">{entries.length} events</span>
       </div>
       <div className="max-h-48 overflow-y-auto py-1">
         {entries.map((entry) => {
@@ -99,23 +99,23 @@ export function AIDecisionLog() {
             <div
               key={entry.id}
               className={cn(
-                'flex items-start gap-2.5 px-3 py-2 hover:bg-zinc-800/30 transition-colors',
-                entry.status === 'running' && 'bg-blue-500/5',
+                'flex items-start gap-2.5 px-3 py-2 hover:bg-muted/60 transition-colors',
+                entry.status === 'running' && 'bg-blue-50 dark:bg-blue-500/5',
               )}
             >
               <Icon className={cn(
                 'h-3.5 w-3.5 mt-0.5 shrink-0',
-                entry.status === 'running' ? 'text-blue-400 animate-spin' : 'text-zinc-400',
+                entry.status === 'running' ? 'text-blue-600 dark:text-blue-400 animate-spin' : 'text-slate-600 dark:text-muted-foreground',
               )} />
               <div className="flex-1 min-w-0">
                 <p className={cn(
-                  'text-[11px] font-medium truncate',
-                  entry.status === 'running' ? 'text-blue-300' : 'text-zinc-300',
+                  'text-[11px] font-semibold truncate',
+                  entry.status === 'running' ? 'text-blue-800 dark:text-blue-300' : 'text-foreground',
                 )}>
                   {entry.label}
                 </p>
                 {entry.detail && (
-                  <p className="text-[10px] text-zinc-500 truncate">{entry.detail}</p>
+                  <p className="text-[10px] text-muted-foreground font-medium truncate">{entry.detail}</p>
                 )}
               </div>
             </div>

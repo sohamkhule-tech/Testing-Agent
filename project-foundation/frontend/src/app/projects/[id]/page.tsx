@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   AlertCircle, Search, LayoutGrid, TestTube, GitPullRequest, Code2, FlaskConical,
-  Eye, EyeOff, Sparkles, Zap, ExternalLink, Lock,
+  Eye, EyeOff, Sparkles, Zap, ExternalLink, Lock, Wand2, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -21,11 +21,12 @@ import { WorkflowTimeline } from '@/components/project/workflow-timeline';
 import { RunList } from '@/components/project/run-list';
 import { ProjectDetails } from '@/components/project/project-details';
 import { PromptAnalysisPanel } from '@/components/project/prompt-analysis-panel';
+import { PromptOptimizationPreview } from '@/components/project/prompt-optimization-preview';
 import {
   useProject, useProjectStats, useProjectRuns, useDeleteProject, useCreateRun, useApproveRun,
-  useProjectPrompt, useSaveProjectPrompt, useAnalyzePrompt,
+  useProjectPrompt, useSaveProjectPrompt, useAnalyzePrompt, useOptimizePrompt, useModels,
 } from '@/hooks/use-api';
-import type { ParsedPromptIntent, PromptAnalysis } from '@/types/api';
+import type { ParsedPromptIntent, PromptAnalysis, OptimizePromptResponse } from '@/types/api';
 
 const STORAGE_KEY = (id: string) => `ai-test-prompt:${id}`;
 const MAX_PROMPT_CHARS = 10000;
@@ -42,10 +43,14 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const [credUsername, setCredUsername] = useState('');
   const [credPassword, setCredPassword] = useState('');
   const [credLoginUrl, setCredLoginUrl] = useState('');
+  const [selectedModel, setSelectedModel] = useState('');
 
   // Transparency: analysis state
   const [analysis, setAnalysis] = useState<PromptAnalysis | null>(null);
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
+
+  // Optimization state
+  const [optimizedData, setOptimizedData] = useState<OptimizePromptResponse | null>(null);
 
   const { data: project, isLoading, error } = useProject(id);
   const { data: stats } = useProjectStats(id);
@@ -56,6 +61,31 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const approveRun = useApproveRun();
   const savePrompt = useSaveProjectPrompt();
   const analyzePrompt = useAnalyzePrompt();
+  const optimizePrompt = useOptimizePrompt();
+  const { data: modelsData } = useModels();
+
+  useEffect(() => {
+    if (!selectedModel && modelsData?.defaultModel) {
+      setSelectedModel(modelsData.defaultModel);
+    }
+  }, [modelsData, selectedModel]);
+
+  const handleOptimizePrompt = () => {
+    if (!userPrompt.trim()) {
+      toast.error('Please enter a prompt to optimize');
+      return;
+    }
+    optimizePrompt.mutate({ prompt: userPrompt, model: selectedModel || modelsData?.defaultModel }, {
+      onSuccess: (data) => {
+        setOptimizedData(data);
+        toast.success('Prompt optimized! Review changes below.');
+      },
+      onError: (err: any) => {
+        const errorMsg = err?.response?.data?.detail || err?.message || 'Unable to optimize the prompt right now. Please try again.';
+        toast.error(errorMsg);
+      },
+    });
+  };
 
   // Restore from localStorage on mount, then fall back to project default
   useEffect(() => {
@@ -122,7 +152,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   /** Called from both "Approve & Start Run" (in panel) and direct "Start Run" (skip analysis). */
   const handleStartRun = (promptOverride?: string) => {
     const finalPrompt = promptOverride ?? buildFinalPrompt();
-    createRun.mutate({ projectId: id, userPrompt: finalPrompt || undefined }, {
+    createRun.mutate({ projectId: id, userPrompt: finalPrompt || undefined, model: selectedModel || modelsData?.defaultModel }, {
       onSuccess: (data) => {
         if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEY(id));
         toast.success('Run started');
@@ -136,7 +166,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
   const handleAnalyzePrompt = () => {
     const finalPrompt = buildFinalPrompt();
     analyzePrompt.mutate(
-      { projectId: id, userPrompt: finalPrompt },
+      { projectId: id, userPrompt: finalPrompt, model: selectedModel || modelsData?.defaultModel },
       {
         onSuccess: (data) => {
           setAnalysis(data);
@@ -193,7 +223,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
       {hasRunningRun && latestRun && (() => {
           const phase = latestRun.current_phase ?? 'crawler';
           const BANNER_META: Record<string, { title: string; desc: string; btnLabel: string; dotColor: string; borderColor: string; bgColor: string; textColor: string; btnColor: string }> = {
-            trigger:         { title: 'Run Initialising',          desc: 'Setting up workspace and environment for the run.',                              btnLabel: 'View Run Setup',            dotColor: 'bg-zinc-400',    borderColor: 'border-zinc-600/50',    bgColor: 'bg-zinc-800/50',    textColor: 'text-zinc-200',   btnColor: 'bg-zinc-700 hover:bg-zinc-600' },
+            trigger:         { title: 'Run Initialising',          desc: 'Setting up workspace and environment for the run.',                              btnLabel: 'View Run Setup',            dotColor: 'bg-muted-foreground', borderColor: 'border-border',    bgColor: 'bg-muted/60',    textColor: 'text-foreground',   btnColor: 'bg-secondary hover:bg-secondary/80' },
             crawler:         { title: 'Live Web Crawler Running',  desc: 'AI is autonomously crawling pages, clicking links, and capturing screenshots.',  btnLabel: 'Open Live Crawler Screen ↗', dotColor: 'bg-blue-400',    borderColor: 'border-blue-500/40',    bgColor: 'bg-blue-500/10',    textColor: 'text-blue-200',   btnColor: 'bg-blue-600 hover:bg-blue-500' },
             inventory:       { title: 'Building Inventory',        desc: 'Analysing crawled data — discovering pages, forms, components and endpoints.',   btnLabel: 'View Inventory ↗',          dotColor: 'bg-violet-400',  borderColor: 'border-violet-500/40',  bgColor: 'bg-violet-500/10',  textColor: 'text-violet-200', btnColor: 'bg-violet-600 hover:bg-violet-500' },
             test_design:     { title: 'AI Test Design In Progress',desc: 'Designing test scenarios, coverage strategy, and generating a test plan.',       btnLabel: 'View AI Test Design ↗',     dotColor: 'bg-indigo-400',  borderColor: 'border-indigo-500/40',  bgColor: 'bg-indigo-500/10',  textColor: 'text-indigo-200', btnColor: 'bg-indigo-600 hover:bg-indigo-500' },
@@ -204,22 +234,22 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           };
           const meta = BANNER_META[phase] ?? BANNER_META['crawler'];
           return (
-            <div className={`flex items-center justify-between p-4 rounded-xl border ${meta.borderColor} ${meta.bgColor} ${meta.textColor} shadow-xl`}>
+            <div className={`flex items-center justify-between p-4 rounded-xl border ${meta.borderColor} ${meta.bgColor} shadow-xl`}>
               <div className="flex items-center gap-3">
                 <span className="relative flex h-3 w-3 shrink-0">
                   <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${meta.dotColor} opacity-75`} />
                   <span className={`relative inline-flex rounded-full h-3 w-3 ${meta.dotColor}`} />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-white">
+                  <p className="text-sm font-semibold text-foreground">
                     {meta.title} — Run #{latestRun.run_id.slice(0, 8)}…
                   </p>
-                  <p className="text-xs opacity-75 mt-0.5">{meta.desc}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
                 </div>
               </div>
               <Link
                 href={`/runs/${latestRun.run_id}`}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg ${meta.btnColor} text-white text-xs font-semibold shadow-md transition-all shrink-0 ml-4`}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg ${meta.btnColor} ${phase === 'trigger' ? 'text-secondary-foreground' : 'text-white'} text-xs font-semibold shadow-md transition-all shrink-0 ml-4`}
               >
                 <ExternalLink className="h-4 w-4" />
                 <span>{meta.btnLabel}</span>
@@ -231,18 +261,18 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
 
 
       {/* AI Test Instructions panel — always visible */}
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 space-y-3">
+      <div className="rounded-lg border border-border bg-card p-4 space-y-3">
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-blue-400" />
-              <label className="text-xs font-medium text-zinc-300 uppercase tracking-wider">AI Test Instructions</label>
+              <label className="text-xs font-medium text-foreground uppercase tracking-wider">AI Test Instructions</label>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleSaveDefaultPrompt}
                 disabled={!userPrompt.trim() || savePrompt.isPending}
-                className="text-[11px] text-zinc-500 hover:text-zinc-300 disabled:opacity-40 transition-colors"
+                className="text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
               >
                 {savePrompt.isPending ? 'Saving…' : 'Save as default'}
               </button>
@@ -252,59 +282,117 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
           {/* Textarea — hidden when analysis panel is open */}
           {!showAnalysisPanel && (
             <>
+              <div className="grid gap-2 sm:grid-cols-[minmax(220px,320px)_1fr] sm:items-end">
+                <div>
+                  <label className="text-[11px] text-muted-foreground block mb-1 uppercase tracking-wider">AI Model</label>
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    disabled={!modelsData?.models?.length || !!hasRunningRun}
+                    className="w-full px-3 py-2 rounded-lg bg-muted border border-input text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
+                  >
+                    {(modelsData?.models ?? []).map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name} ({model.provider})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {latestRun?.ai_model && (
+                  <div className="text-[11px] text-muted-foreground sm:text-right">
+                    Last run model: <span className="font-medium text-foreground">{latestRun.ai_model}</span>
+                  </div>
+                )}
+              </div>
               <textarea
                 value={userPrompt}
                 onChange={(e) => handlePromptChange(e.target.value)}
                 maxLength={MAX_PROMPT_CHARS}
                 placeholder={`Describe what to test in plain English.\n\nExamples:\n- "Test the login form with valid and invalid credentials"\n- "Focus on Reports module, ignore User Management"\n- "Generate negative and boundary scenarios for all forms"\n\nUse ## headings for sections: Focus Areas, Credentials, Exclude, Coverage, Output`}
-                className="w-full px-3 py-2 rounded-lg bg-zinc-950 border border-zinc-800 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 min-h-[100px] resize-y font-mono"
+                className="w-full px-3 py-2 rounded-lg bg-muted border border-input text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50 min-h-[100px] resize-y font-mono"
               />
               <div className="flex items-center justify-between">
-                <p className="text-[11px] text-zinc-600">
-                  Tell the AI what to test. Leave empty for automatic generation.
-                </p>
-                <span className={`text-[11px] ${charWarning ? 'text-amber-400' : 'text-zinc-600'}`}>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOptimizePrompt}
+                    disabled={!userPrompt.trim() || optimizePrompt.isPending || !!hasRunningRun}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30 hover:bg-blue-600/20 text-xs font-semibold disabled:opacity-40 transition-all shadow-sm"
+                  >
+                    {optimizePrompt.isPending ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Optimizing prompt...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+                        <span>Optimize Prompt</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="text-[11px] text-muted-foreground hidden sm:block">
+                    Transform prompt into a structured AI instruction.
+                  </p>
+                </div>
+                <span className={`text-[11px] ${charWarning ? 'text-amber-400' : 'text-muted-foreground'}`}>
                   {charCount.toLocaleString()} / {MAX_PROMPT_CHARS.toLocaleString()}
                 </span>
               </div>
 
+              {/* Non-destructive Optimization Preview */}
+              {optimizedData && (
+                <PromptOptimizationPreview
+                  originalPrompt={optimizedData.originalPrompt}
+                  optimizedPrompt={optimizedData.optimizedPrompt}
+                  usage={optimizedData.usage}
+                  model={optimizedData.model}
+                  onUseOptimized={(text) => {
+                    handlePromptChange(text);
+                    setOptimizedData(null);
+                    toast.success('Optimized prompt applied to instructions!');
+                  }}
+                  onKeepOriginal={() => setOptimizedData(null)}
+                />
+              )}
+
               {/* Structured credentials */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="h-px flex-1 bg-zinc-800" />
-                  <span className="text-[11px] text-zinc-500 font-medium whitespace-nowrap flex items-center gap-1">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[11px] text-muted-foreground font-medium whitespace-nowrap flex items-center gap-1">
                     <Lock className="h-3 w-3" /> Login Credentials
                   </span>
-                  <div className="h-px flex-1 bg-zinc-800" />
+                  <div className="h-px flex-1 bg-border" />
                 </div>
-                <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3 space-y-2">
-                  <p className="text-[11px] text-zinc-500">
+                <div className="rounded-md border border-border bg-muted/40 p-3 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
                     Enter credentials so the crawler can log in. Credentials are encrypted and never logged.
                   </p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
-                      <label className="text-[11px] text-zinc-400 block mb-1">Login URL (optional)</label>
+                      <label className="text-[11px] text-muted-foreground block mb-1">Login URL (optional)</label>
                       <input
                         type="url"
                         value={credLoginUrl}
                         onChange={e => setCredLoginUrl(e.target.value)}
                         placeholder="Auto-detected if empty"
-                        className="w-full px-2 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                        className="w-full px-2 py-1.5 rounded-md bg-muted border border-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                         />
                       </div>
                       <div>
-                        <label className="text-[11px] text-zinc-500 block mb-1">Username / Email</label>
+                        <label className="text-[11px] text-muted-foreground block mb-1">Username / Email</label>
                         <input
                           type="text"
                           value={credUsername}
                           onChange={e => setCredUsername(e.target.value)}
                           placeholder="admin@example.com"
                           autoComplete="off"
-                          className="w-full px-2 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                          className="w-full px-2 py-1.5 rounded-md bg-muted border border-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                         />
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="text-[11px] text-zinc-500 block mb-1">Password</label>
+                        <label className="text-[11px] text-muted-foreground block mb-1">Password</label>
                         <div className="flex items-center gap-1">
                           <input
                             type={showPasswordField ? 'text' : 'password'}
@@ -312,12 +400,12 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                             onChange={e => setCredPassword(e.target.value)}
                             placeholder="••••••••"
                             autoComplete="new-password"
-                            className="flex-1 px-2 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                            className="flex-1 px-2 py-1.5 rounded-md bg-muted border border-input text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500/50"
                           />
                           <button
                             type="button"
                             onClick={() => setShowPasswordField((v: boolean) => !v)}
-                            className="p-1.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                            className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
                             aria-label={showPasswordField ? 'Hide password' : 'Show password'}
                           >
                             {showPasswordField ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -351,7 +439,7 @@ export default function ProjectDetailPage({ params }: { params: Promise<{ id: st
                     <button
                       onClick={() => handleStartRun()}
                       disabled={createRun.isPending || analyzePrompt.isPending}
-                      className="flex items-center gap-1.5 rounded-md border border-zinc-700 hover:border-zinc-500 text-zinc-400 hover:text-zinc-200 text-xs py-2 px-3 transition-colors disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-md border border-input hover:border-foreground/40 text-muted-foreground hover:text-foreground text-xs py-2 px-3 transition-colors disabled:opacity-50"
                       title="Skip analysis and start run directly"
                     >
                       Skip Analysis
