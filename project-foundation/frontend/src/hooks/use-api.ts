@@ -33,6 +33,11 @@ export function useProjects() {
   return useQuery({
     queryKey: queryKeys.projects,
     queryFn: () => projectsService.getAll(),
+    refetchInterval: (query) => {
+      const projects = query.state.data as unknown as Array<{ last_run_status?: string }> | undefined;
+      const hasActive = projects?.some(p => p.last_run_status === 'running' || p.last_run_status === 'pending' || p.last_run_status === 'in_progress');
+      return hasActive ? 3000 : false;
+    },
   });
 }
 
@@ -41,6 +46,11 @@ export function useProject(id: string) {
     queryKey: queryKeys.project(id),
     queryFn: () => projectsService.getById(id),
     enabled: !!id,
+    refetchInterval: (query) => {
+      const data = query.state.data as unknown as { last_run_status?: string } | undefined;
+      const s = data?.last_run_status;
+      return s === 'running' || s === 'pending' || s === 'in_progress' ? 3000 : false;
+    },
   });
 }
 
@@ -172,6 +182,8 @@ export function useApproveRun() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.run(variables.id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects });
+      queryClient.invalidateQueries({ queryKey: queryKeys.project(variables.id) });
     },
   });
 }
@@ -183,6 +195,7 @@ export function useResumeRun() {
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.run(id) });
       queryClient.invalidateQueries({ queryKey: queryKeys.runs });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects });
     },
   });
 }

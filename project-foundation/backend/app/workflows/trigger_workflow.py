@@ -1294,6 +1294,49 @@ async def execution_node(state: PlatformWorkflowState) -> PlatformWorkflowState:
         if state.status != RunStatus.FAILED:
             state.mark_completed()
 
+        try:
+            from uuid import UUID as _UUID
+
+            from app.dependencies import get_trigger_service
+
+            _trigger_service = get_trigger_service()
+            _run_uuid = _UUID(state.run_id) if isinstance(state.run_id, str) else state.run_id
+            await _trigger_service.update_status(
+                run_id=_run_uuid,
+                status=RunStatus.COMPLETED,
+                stage="completed",
+                message="Workflow completed successfully",
+            )
+            try:
+                from app.dependencies import get_project_service
+
+                _ps = get_project_service()
+                _run_entity = await _trigger_service.repository.get_by_id(_run_uuid)
+                if _run_entity and getattr(_run_entity, "project_id", None):
+                    _project = await _ps.project_repo.get_by_id(_run_entity.project_id)
+                    if _project:
+                        _project.last_run_status = RunStatus.COMPLETED.value if hasattr(RunStatus.COMPLETED, "value") else RunStatus.COMPLETED
+                        _project.last_run_at = _run_entity.updated_at or _run_entity.created_at
+                        await _ps.project_repo.update(_project)
+            except Exception as _proj_err:
+                logger.warning(
+                    "execution_node_project_sync_failed",
+                    run_id=state.run_id,
+                    error=str(_proj_err),
+                )
+            try:
+                from app.core.event_bus import EventType as _ET, emit as _emit
+
+                await _emit(state.run_id, _ET.WORKFLOW_COMPLETED, {"run_id": state.run_id})
+            except Exception:
+                pass
+        except Exception as _persist_err:
+            logger.warning(
+                "execution_node_completion_persist_failed",
+                run_id=state.run_id,
+                error=str(_persist_err),
+            )
+
         logger.info(
             "execution_node_completed",
             run_id=state.run_id,

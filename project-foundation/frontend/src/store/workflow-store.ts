@@ -990,17 +990,24 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               return fallback;
             };
 
-            const detectedModules: ModuleInfo[] = rawModules.map((m: any, i: number) => {
-              const mObj = (m && typeof m === 'object') ? m : {};
-              return {
-                name: safeStr(mObj.name, `Module ${i + 1}`),
-                description: safeStr(mObj.description, ''),
-                pages: Array.isArray(mObj.pages) ? mObj.pages.map((p: any) => safeStr(p)) : [],
-                scenarioCount: typeof mObj.scenarios === 'number' ? mObj.scenarios : 20,
-                moduleIndex: i + 1,
-                totalModules: rawModules.length,
-              };
-            });
+            const seenNames = new Set<string>();
+            const detectedModules: ModuleInfo[] = rawModules
+              .map((m: any, i: number) => {
+                const mObj = (m && typeof m === 'object') ? m : {};
+                return {
+                  name: safeStr(mObj.name, `Module ${i + 1}`),
+                  description: safeStr(mObj.description, ''),
+                  pages: Array.isArray(mObj.pages) ? mObj.pages.map((p: any) => safeStr(p)) : [],
+                  scenarioCount: typeof mObj.scenarios === 'number' ? mObj.scenarios : 20,
+                  moduleIndex: i + 1,
+                  totalModules: rawModules.length,
+                };
+              })
+              .filter((mod) => {
+                if (seenNames.has(mod.name)) return false;
+                seenNames.add(mod.name);
+                return true;
+              });
 
             const defaultModName = detectedModules[0]?.name ?? 'Login Module';
 
@@ -1525,7 +1532,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             moduleIndex: data.module_index as number,
             totalModules: data.total_modules as number,
           };
-          detectedModules = [...detectedModules, mod];
+          const existsIdx = detectedModules.findIndex((m) => m.name === mod.name);
+          if (existsIdx >= 0) {
+            const updated = [...detectedModules];
+            updated[existsIdx] = { ...updated[existsIdx], ...mod };
+            detectedModules = updated;
+          } else {
+            detectedModules = [...detectedModules, mod];
+          }
           break;
         }
 

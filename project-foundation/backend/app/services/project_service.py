@@ -99,6 +99,60 @@ class ProjectService(IService, LoggerMixin):
             last_run_status = getattr(latest_run, 'status', last_run_status)
             last_run_at = getattr(latest_run, 'created_at', None) or getattr(latest_run, 'started_at', None) or last_run_at
 
+            normalized = str(last_run_status).lower() if last_run_status is not None else ""
+            if hasattr(last_run_status, "value"):
+                normalized = str(last_run_status.value).lower()
+            if normalized == "running":
+                try:
+                    ws_path = getattr(latest_run, "workspace_path", None)
+                    if ws_path:
+                        from pathlib import Path as _P
+                        import json as _js
+
+                        _ws = _P(ws_path)
+                        _results = _ws / "artifacts" / "generated-tests" / "playwright" / "test-results" / "results.json"
+                        _has_valid = False
+                        if _results.exists():
+                            try:
+                                _data = _js.loads(_results.read_text(encoding="utf-8"))
+                                if isinstance(_data, dict):
+                                    _stats = _data.get("stats", {})
+                                    _suites = _data.get("suites", [])
+                                    if isinstance(_stats, dict) and (_stats.get("expected", 0) > 0 or _stats.get("unexpected", 0) > 0 or _stats.get("flaky", 0) > 0 or _stats.get("skipped", 0) > 0):
+                                        _has_valid = True
+                                    elif _suites:
+                                        _has_valid = True
+                            except Exception:
+                                pass
+                        _is_genuine_failure = False
+                        try:
+                            _meta_p = _ws / "artifacts" / "generated-tests" / "execution-artifacts" / "execution-metadata.json"
+                            if _meta_p.exists():
+                                _m = _js.loads(_meta_p.read_text(encoding="utf-8"))
+                                _cls = str(_m.get("classification", "")).lower()
+                                if _cls in ("execution_timeout", "infrastructure_failure", "command_failure"):
+                                    _is_genuine_failure = True
+                        except Exception:
+                            pass
+                        if _has_valid and not _is_genuine_failure:
+                            try:
+                                from app.constants import RunStatus as _RS
+                                from app.dependencies import get_trigger_service
+
+                                _ts = get_trigger_service()
+                                _rid = getattr(latest_run, "run_id", None)
+                                if _rid:
+                                    await _ts.update_status(_rid, _RS.COMPLETED, stage="completed", message="Workflow completed successfully")
+                                    refreshed = await self.run_repo.get_by_id(_rid)
+                                    if refreshed:
+                                        latest_run = refreshed
+                                        last_run_status = getattr(refreshed, "status", last_run_status)
+                                        last_run_at = getattr(refreshed, "updated_at", None) or last_run_at
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
             if entity.last_run_status != last_run_status or entity.total_runs != total_runs:
                 entity.last_run_status = last_run_status
                 entity.total_runs = total_runs

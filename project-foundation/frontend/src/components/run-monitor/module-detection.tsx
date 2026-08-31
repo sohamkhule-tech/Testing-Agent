@@ -107,7 +107,7 @@ export function ModuleDetection() {
       </p>
       <div className="space-y-2">
         {modules.map((mod) => (
-          <ModuleCard key={mod.name} module={mod} />
+          <ModuleCard key={`${mod.name}-${mod.moduleIndex}`} module={mod} />
         ))}
       </div>
     </div>

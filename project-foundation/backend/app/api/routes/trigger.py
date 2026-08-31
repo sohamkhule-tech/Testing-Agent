@@ -821,6 +821,47 @@ async def get_run_state(
         # completed stage shown as `running` or to double-run stages.
         workspace_path = _Path(ws)
 
+        def _has_valid_execution_results() -> bool:
+            results_path = workspace_path / "artifacts" / "generated-tests" / "playwright" / "test-results" / "results.json"
+            if not results_path.exists():
+                return False
+            try:
+                import json as _json
+
+                data = _json.loads(results_path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    return False
+                stats = data.get("stats", {})
+                suites = data.get("suites", [])
+                if isinstance(stats, dict) and (stats.get("expected", 0) > 0 or stats.get("unexpected", 0) > 0 or stats.get("flaky", 0) > 0 or stats.get("skipped", 0) > 0):
+                    return True
+                if suites:
+                    return True
+                return False
+            except Exception:
+                return False
+
+        def _execution_summary_indicates_completion() -> bool:
+            candidates = [
+                workspace_path / "artifacts" / "generated-tests" / "execution-artifacts" / "reports" / "execution-summary.json",
+                workspace_path / "artifacts" / "generated-tests" / "execution-artifacts" / "execution-metadata.json",
+            ]
+            for p in candidates:
+                if p.exists():
+                    try:
+                        import json as _json
+
+                        data = _json.loads(p.read_text(encoding="utf-8"))
+                        if isinstance(data, dict):
+                            status = str(data.get("status", "")).lower()
+                            if status in ("completed", "completed_with_failures", "passed"):
+                                return True
+                            if data.get("classification") in ("test_execution_completed_with_failures", "passed"):
+                                return True
+                    except Exception:
+                        continue
+            return False
+
         def _infer_completed_from_files() -> list[str]:
             inferred: list[str] = ["trigger"]
             if (workspace_path / "contracts" / "crawl-package.json").exists():
@@ -834,7 +875,7 @@ async def get_run_state(
                 inferred.append("human_review")
             if (workspace_path / "artifacts" / "generated-tests" / "playwright" / "code-generation-metadata.json").exists():
                 inferred.append("code_generation")
-            if (workspace_path / "artifacts" / "execution_report.json").exists() or (workspace_path / "artifacts" / "reports").exists():
+            if _has_valid_execution_results() or _execution_summary_indicates_completion():
                 inferred.append("execution")
                 inferred.append("report")
             return inferred
@@ -871,9 +912,52 @@ async def get_run_state(
                 next_stage = s
                 break
 
+        status_value_raw = entity.status.value if hasattr(entity.status, "value") else entity.status
+        normalized_status = str(status_value_raw).lower() if status_value_raw else ""
+        if normalized_status == "running" and "execution" in completed and next_stage is None:
+            try:
+                from app.constants import RunStatus as _RS
+
+                has_genuine_failure = False
+                try:
+                    exec_meta_path = workspace_path / "artifacts" / "generated-tests" / "execution-artifacts" / "execution-metadata.json"
+                    if exec_meta_path.exists():
+                        import json as _jm
+
+                        _meta = _jm.loads(exec_meta_path.read_text(encoding="utf-8"))
+                        _cls = str(_meta.get("classification", "")).lower()
+                        if _cls in ("execution_timeout", "infrastructure_failure", "command_failure"):
+                            has_genuine_failure = True
+                except Exception:
+                    pass
+                if not has_genuine_failure:
+                    await service.update_status(run_id, _RS.COMPLETED, stage="completed", message="Workflow completed successfully")
+                    try:
+                        updated = await service.get_run(run_id)
+                        entity = updated
+                        status_value_raw = entity.status.value if hasattr(entity.status, "value") else entity.status
+                    except Exception:
+                        pass
+                    try:
+                        from app.dependencies import get_project_service
+
+                        _ps2 = get_project_service()
+                        _run_for_proj = await service.repository.get_by_id(run_id)
+                        if _run_for_proj and getattr(_run_for_proj, "project_id", None):
+                            _proj = await _ps2.project_repo.get_by_id(_run_for_proj.project_id)
+                            if _proj:
+                                _proj.last_run_status = _RS.COMPLETED.value if hasattr(_RS.COMPLETED, "value") else _RS.COMPLETED
+                                _proj.last_run_at = entity.updated_at or entity.created_at
+                                await _ps2.project_repo.update(_proj)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            status_value_raw = entity.status.value if hasattr(entity.status, "value") else entity.status
+
         return {
             "run_id": str(run_id),
-            "status": entity.status.value if hasattr(entity.status, "value") else entity.status,
+            "status": status_value_raw,
             "current_stage": entity.current_stage,
             "completed_stages": completed,
             "last_completed_stage": cp_raw.get("last_completed_stage"),
