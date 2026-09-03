@@ -213,7 +213,28 @@ _EXTRACT_ALL_JS = """
     });
   });
 
-  return { inputs, buttons, checkboxes, radios, dropdowns, forms, tables, dialogs, uploads };
+  /* ---- alerts / error elements / validation messages ---- */
+  const alerts = [];
+  const alertEls = document.querySelectorAll('[role=alert], [aria-live=assertive], [aria-live=polite], .alert, .error-message, [class*="error"], [class*="invalid"], .invalid-feedback');
+  const seenAlerts = new Set();
+  alertEls.forEach((el) => {
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    const visible = isVisible(el);
+    const key = text + '|' + (el.id || '');
+    if (seenAlerts.has(key)) return;
+    seenAlerts.add(key);
+    alerts.push({
+      role: el.getAttribute('role') || 'alert',
+      text,
+      id: el.id || null,
+      ariaLive: el.getAttribute('aria-live') || null,
+      visible,
+      boundingBox: visible ? getRect(el) : null,
+    });
+  });
+
+  return { inputs, buttons, checkboxes, radios, dropdowns, forms, tables, dialogs, uploads, alerts };
 }
 """
 
@@ -224,7 +245,7 @@ async def extract_all(page: Page) -> dict:
 
     Returns:
         dict with keys: inputs, buttons, checkboxes, radios, dropdowns,
-                        forms, tables, dialogs, uploads
+                        forms, tables, dialogs, uploads, alerts
     """
     result = await page.evaluate(_EXTRACT_ALL_JS)
     return result

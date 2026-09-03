@@ -315,6 +315,35 @@ class CrawlerService(IService, LoggerMixin):
                 # Attempt authentication when credentials/strategy were supplied.
                 post_login_url: str | None = None
                 if self._auth_context and self._auth_context.has_auth_config():
+                    # Capture the pre-auth state of the target URL before credentials are
+                    # submitted so the unauthenticated page appears in the inventory.
+                    canonical_target = self._canonicalize_url(request.target_url)
+                    if canonical_target and canonical_target not in self._visited_urls:
+                        try:
+                            pre_auth_record = await self._visit_page(
+                                context=context,
+                                url=request.target_url,
+                                depth=0,
+                                parent_page_id=None,
+                                screenshots_dir=screenshots_dir if request.screenshot else None,
+                                timeout_ms=request.timeout,
+                            )
+                            self._visited_urls.add(canonical_target)
+                            canonical_actual = self._canonicalize_url(pre_auth_record.url)
+                            if canonical_actual:
+                                self._visited_urls.add(canonical_actual)
+                            self._visited_pages.append(pre_auth_record)
+                            self.logger.info(
+                                "pre_auth_page_captured",
+                                url=request.target_url,
+                                page_id=str(pre_auth_record.page_id),
+                            )
+                        except Exception as pre_auth_err:
+                            self.logger.warning(
+                                "pre_auth_page_capture_failed",
+                                url=request.target_url,
+                                error=str(pre_auth_err),
+                            )
                     auth_result = await self._perform_login(context)
                     if auth_result.success:
                         self._authenticated = True

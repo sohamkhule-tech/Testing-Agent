@@ -242,8 +242,11 @@ class TestCodeGenerationNode:
         )
         
         # Mock agent that hangs forever
+        async def _hang(*args, **kwargs):
+            await asyncio.sleep(99999)
+
         mock_agent = AsyncMock()
-        mock_agent.execute = AsyncMock(side_effect=lambda x: asyncio.sleep(99999))
+        mock_agent.execute = AsyncMock(side_effect=_hang)
         
         state.metadata = {"code_generation_agent": mock_agent}
         state.approved_test_plan_path = "/tmp/test-plan.json"

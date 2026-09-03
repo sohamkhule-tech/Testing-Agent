@@ -180,10 +180,16 @@ async def create_run(
         if _auth_payload is not None:
             _login_url = getattr(_auth_payload, "login_url", None)
             _strategy = getattr(_auth_payload, "login_strategy", None)
+            _username = getattr(_auth_payload, "username", None) or getattr(_auth_payload, "identity", None)
+            _password = getattr(_auth_payload, "password", None)
             if _login_url:
                 auth_context.login_url = str(_login_url)
             if _strategy and _strategy != "none":
                 auth_context.auth_strategy = _strategy
+            if _username:
+                auth_context.username = _username
+            if _password:
+                auth_context.password = _password
 
         # --- Phase 1: enrich intent with the Hybrid Intent Parser (LLM) when enabled ---
         from app.agent.config import get_agent_config as _get_agent_config

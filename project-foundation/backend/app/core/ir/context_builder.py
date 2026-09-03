@@ -79,3 +79,92 @@ class ContextBuilder(LoggerMixin):
                 lines.append(f"- {constraint}")
 
         return "\n".join(lines)
+
+    def build_element_evidence_section(self, inventory_data: dict[str, Any]) -> str:
+        """Build an element evidence section from inventory data for the IR generation prompt.
+
+        Groups inputs, buttons, and checkboxes by page URL so the LLM can select
+        locators that are actually present in the crawled DOM.
+        """
+        if not isinstance(inventory_data, dict):
+            return ""
+
+        pages: list[dict] = inventory_data.get("pages") or []
+        inputs: list[dict] = inventory_data.get("inputs") or []
+        buttons: list[dict] = inventory_data.get("buttons") or []
+        checkboxes: list[dict] = inventory_data.get("checkboxes") or []
+        radio_buttons: list[dict] = inventory_data.get("radio_buttons") or []
+        dropdowns: list[dict] = inventory_data.get("dropdowns") or []
+
+        # Build page_id → URL index
+        page_id_to_url: dict[str, str] = {
+            str(p.get("page_id", "")): p.get("url", "") for p in pages if p.get("page_id")
+        }
+
+        # Collect evidence per page URL
+        evidence_by_page: dict[str, list[str]] = {}
+
+        def _page_url(record: dict) -> str:
+            pid = str(record.get("page_id", ""))
+            return page_id_to_url.get(pid, pid)
+
+        def _append(url: str, line: str) -> None:
+            evidence_by_page.setdefault(url, []).append(line)
+
+        for inp in inputs:
+            url = _page_url(inp)
+            parts = [f"input type={inp.get('input_type', 'text')}"]
+            if inp.get("label"):
+                parts.append(f'label="{inp["label"]}"')
+            if inp.get("placeholder"):
+                parts.append(f'placeholder="{inp["placeholder"]}"')
+            if inp.get("name"):
+                parts.append(f'name="{inp["name"]}"')
+            _append(url, "  - " + ", ".join(parts))
+
+        for btn in buttons:
+            url = _page_url(btn)
+            parts = [f"button type={btn.get('button_type', 'button')}"]
+            if btn.get("text"):
+                parts.append(f'text="{btn["text"]}"')
+            _append(url, "  - " + ", ".join(parts))
+
+        for cb in checkboxes:
+            url = _page_url(cb)
+            parts = ["checkbox"]
+            if cb.get("label"):
+                parts.append(f'label="{cb["label"]}"')
+            if cb.get("name"):
+                parts.append(f'name="{cb["name"]}"')
+            _append(url, "  - " + ", ".join(parts))
+
+        for rb in radio_buttons:
+            url = _page_url(rb)
+            parts = ["radio"]
+            if rb.get("label"):
+                parts.append(f'label="{rb["label"]}"')
+            if rb.get("name"):
+                parts.append(f'name="{rb["name"]}"')
+            _append(url, "  - " + ", ".join(parts))
+
+        for dd in dropdowns:
+            url = _page_url(dd)
+            parts = ["select"]
+            if dd.get("label"):
+                parts.append(f'label="{dd["label"]}"')
+            if dd.get("name"):
+                parts.append(f'name="{dd["name"]}"')
+            _append(url, "  - " + ", ".join(parts))
+
+        if not evidence_by_page:
+            return ""
+
+        lines = ["## Element Evidence\n",
+                 "The following elements were discovered on each page during crawling.",
+                 "Use ONLY these values as locator candidates. Do not invent locators not listed here.\n"]
+        for url, element_lines in evidence_by_page.items():
+            lines.append(f"### {url}")
+            lines.extend(element_lines)
+            lines.append("")
+
+        return "\n".join(lines)

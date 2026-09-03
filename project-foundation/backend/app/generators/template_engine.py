@@ -393,7 +393,7 @@ export default defineConfig({{
         # --- Load user-provided credentials from the credential store ---
         valid_username = ""
         valid_password = ""
-        if workspace_path and ir.environment.auth_required:
+        if workspace_path:
             try:
                 from app.services.prompt_builder import get_credential_store
                 cred_store = get_credential_store()
@@ -408,33 +408,41 @@ BASE_URL={ir.environment.base_url}
 
 # Authentication Credentials
 """
-        if ir.environment.auth_required:
+        if ir.environment.auth_required or valid_username or valid_password:
             # Evidence-based routes for the authenticated fixture (crawler data).
             _auth_page = self._find_auth_page(ir)
             _landing_page = self._find_landing_page(ir, _auth_page)
             _login_url = _auth_page.url_pattern if _auth_page and _auth_page.url_pattern else ""
             _success_url = _landing_page.url_pattern if _landing_page and _landing_page.url_pattern else ""
 
-            env_content += f"""VALID_USERNAME={valid_username}
+            env_content += f"""VALID_IDENTITY={valid_username}
+VALID_USERNAME={valid_username}
 VALID_PASSWORD={valid_password}
+INVALID_IDENTITY=invalid_user_xyz
 INVALID_USERNAME=invalid_user_xyz
 INVALID_PASSWORD=wrong_password_xyz
+IDENTITY={valid_username}
 USERNAME={valid_username}
 PASSWORD={valid_password}
+TEST_IDENTITY={valid_username}
 TEST_USERNAME={valid_username}
 TEST_PASSWORD={valid_password}
 AUTH_LOGIN_URL={_login_url}
 AUTH_SUCCESS_URL={_success_url}
+"""
 
+        env_content += f"""
 # Boundary Test Values
-MAX_LENGTH_USERNAME={valid_username}
-MAX_LENGTH_PASSWORD={valid_password}
+MAX_LENGTH_USERNAME={'a' * 256}
+MAX_LENGTH_PASSWORD={'b' * 256}
 
 # Security Test Payloads
 SQL_INJECTION_USERNAME=' OR '1'='1
 SQL_INJECTION_PASSWORD=' OR '1'='1
+SQL_INJECTION=' OR '1'='1
 XSS_PAYLOAD_USERNAME=<script>alert('xss')</script>
 XSS_PAYLOAD_PASSWORD=<script>alert('xss')</script>
+XSS_SCRIPT=<script>alert('xss')</script>
 
 # Locked / Expired Account
 LOCKED_USERNAME=locked_user_test
@@ -448,6 +456,21 @@ CASE_SENSITIVE_PASSWORD={valid_password.lower() if valid_password else 'admin@12
 SPECIAL_CHARS_USERNAME={valid_username}@#$
 SPECIAL_CHARS_PASSWORD={valid_password}!#$
 """
+
+        # Append all variables declared in the IR so generated spec files can resolve them.
+        if ir.environment.variables:
+            existing_keys: set[str] = set()
+            for line in env_content.splitlines():
+                if "=" in line and not line.strip().startswith("#"):
+                    existing_keys.add(line.split("=", 1)[0].strip())
+            ir_extras = "\n# Variables declared in the test IR\n"
+            added = False
+            for var_name, var_value in ir.environment.variables.items():
+                if var_name not in existing_keys:
+                    ir_extras += f"{var_name}={var_value}\n"
+                    added = True
+            if added:
+                env_content += ir_extras
 
         env_content += """
 # Browser Configuration
@@ -511,6 +534,11 @@ export class {class_name} {{
             locator_code = self._generate_locator(element)
             code += f"\n  readonly {self._to_camel_case(element.id)}: Locator;\n"
 
+        # Generate per-state locators for dynamic/stateful elements
+        for element in page.elements:
+            for state in (element.states or []):
+                code += f"\n  readonly {self._state_locator_name(element.id, state.id)}: Locator;\n"
+
         # Constructor
         code += f"""
   constructor(page: Page) {{
@@ -520,6 +548,11 @@ export class {class_name} {{
         for element in page.elements:
             locator_code = self._generate_locator_expression(element)
             code += f"    this.{self._to_camel_case(element.id)} = {locator_code};\n"
+
+        for element in page.elements:
+            for state in (element.states or []):
+                state_expr = self._generate_state_locator_expression(element, state)
+                code += f"    this.{self._state_locator_name(element.id, state.id)} = {state_expr};\n"
 
         code += "  }\n"
 
@@ -541,15 +574,62 @@ export class {class_name} {{
         """Generate locator declaration."""
         return f"readonly {self._to_camel_case(element.id)}: Locator;"
 
-    def _generate_locator_expression(self, element: ElementIR) -> str:
+    @staticmethod
+    def _js_string(value: str) -> str:
+        """Return ``value`` as a safely-escaped JavaScript string literal.
+
+        Uses ``json.dumps`` so embedded single/double quotes, backslashes, and
+        control characters are escaped correctly. This prevents generated code
+        like ``this.page.locator('input[type='text']')`` where an unescaped
+        quote inside a CSS/XPATH/placeholder value terminates the string and
+        produces a TypeScript ``SyntaxError``.
+        """
+        return json.dumps(value)
+
+    @staticmethod
+    def _js_regex(value: str) -> str:
+        r"""Return ``value`` safely escaped for embedding inside a JavaScript/TypeScript
+        regex literal (i.e., between forward-slash delimiters: ``/…/i``).
+
+        A plain forward slash ``/`` terminates the regex literal in TypeScript,
+        so IR values such as ``"Email Address / User ID"`` must have their slashes
+        escaped as ``\/``.  All other regex metacharacters are also escaped so
+        that the literal text is matched rather than interpreted as a regex
+        operator.
+
+        Escape order: backslash first, then every other metacharacter, so that
+        the escape character itself is not double-escaped.
+
+        Characters escaped: \ / ^ $ . * + ? ( ) [ ] { } |
+        """
+        # re.escape escapes backslash first, then all metacharacters.
+        # We then additionally escape '/' (the JS regex delimiter) which
+        # Python's re.escape does not escape.
+        escaped = re.escape(value)
+        # re.escape uses \x2f on some versions but not on others for '/'
+        # – handle both by replacing any literal '/' that survived.
+        escaped = escaped.replace("/", "\\/")
+        return escaped
+
+    def _generate_locator_expression(
+        self,
+        element: ElementIR,
+        strategy: Any | None = None,
+        value: str | None = None,
+        element_name: str | None = None,
+    ) -> str:
         """Generate a resilient locator expression using multiple fallback strategies.
 
         LLM-generated IR may have approximate label/placeholder values that don't
         exactly match the live page. Using Playwright's .or() chaining gives us
         robust element resolution even when the primary strategy guesses wrong.
+
+        ``strategy``/``value``/``element_name`` may override the element's own
+        values so a specific state of a stateful element can be rendered with its
+        own locator.
         """
-        strategy = element.locator_strategy
-        value = element.locator_value
+        strategy = strategy if strategy is not None else element.locator_strategy
+        value = value if value is not None else element.locator_value
         element_id = element.id.lower()
 
         if strategy == LocatorStrategy.ROLE:
@@ -562,28 +642,28 @@ export class {class_name} {{
                 if role in ("alert", "status"):
                     return (
                         f"this.page.getByRole('{role}')"
-                        f".or(this.page.locator('[role=\"{role}\"], [aria-live=\"assertive\"], [aria-live=\"polite\"]'))"
+                        f".or(this.page.locator({self._js_string(f'[role=\"{role}\"], [aria-live=\"assertive\"], [aria-live=\"polite\"]')}))"
                         f".first()"
                     )
                 # For buttons, try exact name first, then partial (regex)
                 return (
-                    f"this.page.getByRole('{role}', {{ name: '{name}' }})"
-                    f".or(this.page.getByRole('{role}', {{ name: /{name}/i }}))"
+                    f"this.page.getByRole('{role}', {{ name: {self._js_string(name)} }})"
+                    f".or(this.page.getByRole('{role}', {{ name: /{self._js_regex(name)}/i }}))"
                 )
             # A bare role (e.g. getByRole('button')) matches every element of
             # that role on the page — unsafe. Ground the locator in the IR
             # element's own name (accessible-name partial match) whenever the
             # model provided one.
-            element_name = (element.name or "").strip()
+            element_name = (element_name if element_name is not None else element.name or "").strip()
             if element_name and element_name.lower() != value.strip().lower():
                 # alert/status without a role:name split — same treatment
                 if value.strip() in ("alert", "status"):
                     return (
                         f"this.page.getByRole('{value}')"
-                        f".or(this.page.locator('[role=\"{value}\"], [aria-live=\"assertive\"], [aria-live=\"polite\"]'))"
+                        f".or(this.page.locator({self._js_string(f'[role=\"{value}\"], [aria-live=\"assertive\"], [aria-live=\"polite\"]')}))"
                         f".first()"
                     )
-                return f"this.page.getByRole('{value}', {{ name: /{element_name}/i }})"
+                return f"this.page.getByRole('{value}', {{ name: /{self._js_regex(element_name)}/i }})"
             return f"this.page.getByRole('{value}')"
 
         elif strategy == LocatorStrategy.LABEL:
@@ -591,45 +671,96 @@ export class {class_name} {{
             # Build a resilient chain: getByLabel (partial) → getByPlaceholder (partial)
             # → input[type] heuristic based on element id semantics.
             label_lower = value.lower()
+            label_escaped = self._js_regex(label_lower)
+
+            # Checkbox fields: NEVER add text input fallbacks (input[type="text"])
+            if any(k in element_id for k in ("checkbox", "remember", "check")) or "checkbox" in label_lower:
+                return (
+                    f"this.page.getByRole('checkbox', {{ name: /{label_escaped}/i }})"
+                    f".or(this.page.getByLabel(/{label_escaped}/i))"
+                    f".or(this.page.getByPlaceholder(/{label_escaped}/i))"
+                    f".or(this.page.locator('input[type=\"checkbox\"]'))"
+                )
 
             # Password fields: skip getByLabel — it matches both the <input type="password">
             # AND any "Show password" toggle button whose aria-label contains "password".
             # That causes a Playwright strict-mode violation on .fill() and .toBeVisible().
             # Use the CSS input selector first, falling back to placeholder.
-            if any(k in element_id for k in ("password", "pwd", "pass")):
+            if any(k in element_id for k in ("password", "pwd", "pass")) and not any(k in element_id for k in ("show", "hide", "toggle")):
                 return (
                     "this.page.locator('input[type=\"password\"]')"
-                    f".or(this.page.getByPlaceholder(/{label_lower}/i))"
+                    f".or(this.page.getByPlaceholder(/{label_escaped}/i))"
                 )
-            elif any(k in element_id for k in ("email", "username", "user", "login")):
+            elif any(k in element_id for k in ("email", "username", "user", "userid")) and not any(k in element_id for k in ("checkbox", "check", "button", "btn")):
                 type_fallback = "this.page.locator('input[type=\"text\"], input[type=\"email\"]').first()"
-                expr = f"this.page.getByLabel(/{label_lower}/i)"
-                expr += f".or(this.page.getByPlaceholder(/{label_lower}/i))"
+                expr = f"this.page.getByLabel(/{label_escaped}/i)"
+                expr += f".or(this.page.getByPlaceholder(/{label_escaped}/i))"
                 expr += f".or({type_fallback})"
                 return expr
             else:
-                expr = f"this.page.getByLabel(/{label_lower}/i)"
-                expr += f".or(this.page.getByPlaceholder(/{label_lower}/i))"
+                expr = f"this.page.getByLabel(/{label_escaped}/i)"
+                expr += f".or(this.page.getByPlaceholder(/{label_escaped}/i))"
                 return expr
 
         elif strategy == LocatorStrategy.PLACEHOLDER:
-            return f"this.page.getByPlaceholder('{value}')"
+            return f"this.page.getByPlaceholder({self._js_string(value)})"
 
         elif strategy == LocatorStrategy.TEXT:
-            return f"this.page.getByText('{value}')"
+            # For password toggle buttons (Show password / Hide password)
+            if any(k in element_id for k in ("show_password", "toggle_password", "password_toggle")) or value.strip().lower() in ("show password", "hide password"):
+                return "this.page.getByRole('button', { name: /show password|hide password/i }).or(this.page.getByText(/show password|hide password/i))"
+            return f"this.page.getByText({self._js_string(value)})"
 
         elif strategy == LocatorStrategy.TEST_ID:
-            return f"this.page.getByTestId('{value}')"
+            return f"this.page.getByTestId({self._js_string(value)})"
 
         elif strategy == LocatorStrategy.CSS:
-            return f"this.page.locator('{value}')"
+            return f"this.page.locator({self._js_string(value)})"
 
         elif strategy == LocatorStrategy.XPATH:
-            return f"this.page.locator('{value}')"
+            return f"this.page.locator({self._js_string(value)})"
 
         else:
-            return f"this.page.locator('{value}')"
+            return f"this.page.locator({self._js_string(value)})"
 
+
+    def _state_locator_name(self, element_id: str, state_id: str) -> str:
+        """Return the page-object property name for a state locator."""
+        return f"{self._to_camel_case(element_id)}_{self._to_camel_case(state_id)}"
+
+    def _generate_state_locator_expression(self, element: ElementIR, state: Any) -> str:
+        """Render a locator expression for a specific state of a stateful element.
+
+        Uses the state's own locator strategy/value when provided, otherwise
+        falls back to the element's primary locator.
+        """
+        strategy = getattr(state, "locator_strategy", None) or element.locator_strategy
+        value = getattr(state, "locator_value", None)
+        if value is None or value == "":
+            value = element.locator_value
+        return self._generate_locator_expression(
+            element,
+            strategy=strategy,
+            value=value,
+            element_name=element.name,
+        )
+
+    def _resolve_action_locator(self, action: ActionIR, ir: CodeGenerationIR) -> str:
+        """Resolve the page-object locator property to use for an action.
+
+        For a stateful element whose action records a ``state_transition``, use
+        the locator for the state the element is currently in (``from_state``).
+        Otherwise fall back to the element's primary locator.
+        """
+        page_id = self._find_page_for_element(action.element_id, ir)
+        page_var = self._to_camel_case(page_id)
+        element_var = self._to_camel_case(action.element_id)
+
+        transition = getattr(action, "state_transition", None)
+        from_state = getattr(transition, "from_state", None) if transition is not None else None
+        if from_state:
+            return f"{page_var}.{self._state_locator_name(action.element_id, from_state)}"
+        return f"{page_var}.{element_var}"
 
     def _find_auth_page(self, ir: CodeGenerationIR) -> PageIR | None:
         """Find the page that carries the login form (evidence-based).
@@ -992,6 +1123,7 @@ test.describe('{module.name}', () => {{
         action_type = action.action_type
 
         if action_type == ActionType.CLICK:
+            locator = self._resolve_action_locator(action, ir)
             return f"    await {locator}.click();\n"
         
         elif action_type == ActionType.FILL:
@@ -1019,7 +1151,17 @@ test.describe('{module.name}', () => {{
         
         elif action_type == ActionType.CLEAR:
             return f"    await {locator}.clear();\n"
-        
+
+        elif action_type == ActionType.FOCUS:
+            return f"    await {locator}.focus();\n"
+
+        elif action_type == ActionType.PRESS:
+            raw_val = action.value or "Enter"
+            if raw_val.startswith("$"):
+                raw_val = raw_val[1:]
+            key = raw_val if raw_val else "Enter"
+            return f"    await {locator}.press('{key}');\n"
+
         else:
             return f"    // TODO: Action {action_type} on {locator}\n"
 
@@ -1073,13 +1215,38 @@ test.describe('{module.name}', () => {{
             return f"    await expect({locator}).toBeChecked();\n"
         
         elif assertion_type == AssertionType.HAS_TEXT:
-            return f"    await expect({locator}).toHaveText('{assertion.expected_value}');\n"
+            val = assertion.expected_value or ""
+            if isinstance(val, str) and val.startswith("$"):
+                env_var = val[1:]
+                return f"    await expect({locator}).toHaveText(process.env.{env_var} || '');\n"
+            return f"    await expect({locator}).toHaveText('{val}');\n"
         
         elif assertion_type == AssertionType.HAS_VALUE:
-            return f"    await expect({locator}).toHaveValue('{assertion.expected_value}');\n"
+            val = assertion.expected_value or ""
+            if isinstance(val, str) and val.startswith("$"):
+                env_var = val[1:]
+                return f"    await expect({locator}).toHaveValue(process.env.{env_var} || '');\n"
+            return f"    await expect({locator}).toHaveValue('{val}');\n"
         
         elif assertion_type == AssertionType.CONTAINS_TEXT:
-            return f"    await expect({locator}).toContainText('{assertion.expected_value}');\n"
+            val = assertion.expected_value or ""
+            if isinstance(val, str) and val.startswith("$"):
+                env_var = val[1:]
+                return f"    await expect({locator}).toContainText(process.env.{env_var} || '');\n"
+            return f"    await expect({locator}).toContainText('{val}');\n"
+
+        elif assertion_type == AssertionType.HAS_ATTRIBUTE or getattr(assertion_type, "value", None) == "toHaveAttribute":
+            val = assertion.expected_value
+            if isinstance(val, dict):
+                attr_name = val.get("name", "type")
+                attr_val = val.get("value", "")
+            elif isinstance(val, (list, tuple)) and len(val) == 2:
+                attr_name, attr_val = val
+            elif isinstance(val, str) and "=" in val:
+                attr_name, attr_val = val.split("=", 1)
+            else:
+                attr_name, attr_val = "type", str(val or "")
+            return f"    await expect({locator}).toHaveAttribute('{attr_name}', '{attr_val}');\n"
         
         else:
             return f"    // TODO: Assertion {assertion_type} on {locator}\n"

@@ -215,8 +215,14 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
 
             # Load inventory for richer context (optional)
             inventory_path = Path(workspace_path) / "contracts" / "inventory.json"
+            inventory_data: dict | None = None
             if inventory_path.exists():
                 await _emit(run_id_str, EventType.LOADING_INVENTORY, {"path": str(inventory_path)})
+                try:
+                    raw = await load_file(inventory_path)
+                    inventory_data = raw if isinstance(raw, dict) else None
+                except Exception:
+                    pass  # non-fatal — IR generation proceeds without evidence
 
             # Load screenshots manifest if available
             screenshots_dir = Path(workspace_path) / "screenshots"
@@ -293,6 +299,7 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
                 "approved_test_plan": approved_plan,
                 "base_url": base_url,
                 "model": selected_model,
+                "inventory_data": inventory_data,
             })
             
             ir_duration = time.time() - step_start
@@ -305,6 +312,29 @@ class CodeGenerationAgent(IAgent, LoggerMixin):
             ir: CodeGenerationIR = ir_result["ir"]
             validation_result = ir_result["validation_result"]
             dependency_graph = ir_result["dependency_graph"]
+
+            # Validate IR locators against inventory evidence
+            if inventory_data:
+                from app.validation.locator_validator import validate_ir_locators
+                locator_validation = validate_ir_locators(
+                    ir.model_dump(mode="json"), inventory_data
+                )
+                if not locator_validation.is_valid:
+                    self.logger.warning(
+                        "ir_locator_evidence_gaps",
+                        run_id=run_id,
+                        issue_count=len(locator_validation.issues),
+                        issues=[
+                            {"element": i.element_id, "strategy": i.locator_strategy,
+                             "value": i.locator_value, "reason": i.reason}
+                            for i in locator_validation.issues
+                        ],
+                    )
+                    await _emit(run_id_str, "LOCATOR_VALIDATION_WARNING", {
+                        "issue_count": len(locator_validation.issues),
+                        "label": f"⚠️ {len(locator_validation.issues)} locator(s) not supported by inventory evidence",
+                        "issues": locator_validation.to_dict()["issues"],
+                    })
 
             await _emit(run_id_str, EventType.PARSING_RESPONSE, {
                 "pages": len(ir.pages),

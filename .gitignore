@@ -1,0 +1,40 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Coverage
+coverage.xml
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+dist/
+build/
+*.tsbuildinfo
+
+# Playwright
+test-results/
+playwright-report/
+
+# Allure
+allure-results/
+allure-report/
+
+# Runtime
+storage/
+
+# OS
+.DS_Store
+Thumbs.db

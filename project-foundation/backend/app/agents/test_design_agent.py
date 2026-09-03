@@ -494,12 +494,18 @@ Generate a complete test plan as VALID JSON with this structure (use double quot
   "performance_recommendations": ["..."]
 }}
 
-IMPORTANT — Coverage Requirements:
+IMPORTANT — Evidence-First Rule (highest priority):
+- The inventory above is the ONLY source of truth. ONLY generate scenarios for pages, forms, and behaviors that are DIRECTLY EVIDENCED in the inventory.
+- Do NOT invent, assume, or hallucinate pages, UI elements, error messages, or behaviors that are absent from the inventory — even if the user's instructions mention them.
+- If the user's instructions reference a page or feature NOT present in the inventory, record it in assumptions.risks and generate AT MOST 1 placeholder scenario with expected_result: "INSUFFICIENT_EVIDENCE — this page/feature was not observed during crawling. Re-run the crawler targeting this page directly."
+- The minimum scenario counts below apply ONLY to pages and forms that are PRESENT in the inventory.
+
+IMPORTANT — Coverage Requirements (apply only to evidenced pages and forms):
 - Assign each scenario a unique sequential ID: TC-001, TC-002, TC-003, ...
-- For EVERY page or module discovered, generate a MINIMUM of 8 scenarios. For authentication / login pages generate at least 15 scenarios.
-- For EVERY form discovered, generate AT LEAST: 1 happy-path, 1 empty-submit, 1 invalid-data, 1 boundary-value, 1 SQL-injection / XSS scenario.
+- For EVERY page present in the inventory, generate a MINIMUM of 8 scenarios.
+- For EVERY form present in the inventory, generate AT LEAST: 1 happy-path, 1 empty-submit, 1 invalid-data, 1 boundary-value, 1 SQL-injection / XSS scenario.
 - Each of these categories MUST appear at least once in the plan: smoke, happy_path, negative, validation, boundary, authentication, security.
-- If the user's instructions mention a specific page or module, generate EXTRA depth for that area (minimum 10 scenarios dedicated to it).
+- If the user's instructions mention a specific page or module, generate EXTRA depth for that area ONLY IF EVIDENCED IN THE INVENTORY (minimum 10 scenarios dedicated to it).
 - DO NOT stop early. Generate ALL scenarios. Produce a thorough, exhaustive test plan that a senior QA engineer would be proud of.
 - Group related scenarios into clearly named modules (e.g. "Login Module", "Dashboard Module", "Forms Module").
 - Identify the top high-risk areas and mark at least 30% of scenarios as regression candidates."""

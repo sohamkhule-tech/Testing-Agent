@@ -1005,7 +1005,7 @@ async def code_generation_node(state: PlatformWorkflowState) -> PlatformWorkflow
         try:
             result = await asyncio.wait_for(code_gen_agent.execute(input_data), timeout=_cg_timeout)
             logger.info("code_generation_step_3_complete", run_id=state.run_id, duration=time.time() - step_start)
-        except TimeoutError as timeout_err:
+        except (asyncio.TimeoutError, TimeoutError) as timeout_err:
             elapsed = time.time() - step_start
             error_msg = f"Code generation timed out after {elapsed:.1f}s (limit: {_cg_timeout}s)"
             logger.error("code_generation_timeout", run_id=state.run_id, elapsed=elapsed, limit=_cg_timeout)

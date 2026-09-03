@@ -77,9 +77,8 @@ class TestStartupValidation:
         original_asyncio = sys.modules.get("asyncio")
         
         try:
-            # Remove asyncio from sys.modules
-            if "asyncio" in sys.modules:
-                del sys.modules["asyncio"]
+            # Set asyncio to None in sys.modules to simulate ModuleNotFoundError
+            sys.modules["asyncio"] = None
             
             # This should raise because asyncio is "missing"
             with pytest.raises(StartupValidationError, match="asyncio"):

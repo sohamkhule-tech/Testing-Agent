@@ -47,6 +47,9 @@ class AuthenticationInput(BaseModel):
     """Authentication configuration."""
 
     required: bool = Field(default=False, description="Whether auth is required")
+    username: str | None = Field(None, description="Username/Identity for test authentication")
+    password: str | None = Field(None, description="Password for test authentication")
+    identity: str | None = Field(None, description="Identity/Email for test authentication")
     login_strategy: Literal["form", "api", "basic", "oauth", "sso", "none"] | None = Field(
         None, description="Authentication mechanism"
     )

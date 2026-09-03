@@ -30,7 +30,8 @@ class PromptComposer(LoggerMixin):
     def compose_ir_generation_prompt(
         self,
         approved_plan: ApprovedTestPlan,
-        base_url: str = "http://localhost:3000"
+        base_url: str = "http://localhost:3000",
+        inventory_data: dict | None = None,
     ) -> str:
         """
         Compose complete IR generation prompt.
@@ -38,6 +39,8 @@ class PromptComposer(LoggerMixin):
         Args:
             approved_plan: Approved test plan
             base_url: Application base URL
+            inventory_data: Raw inventory dict from inventory.json (optional but
+                strongly recommended — enables evidence-based locator generation)
 
         Returns:
             Complete prompt text
@@ -50,6 +53,11 @@ class PromptComposer(LoggerMixin):
         )
         context_text = self.context_builder.format_context_for_prompt(app_context)
 
+        # Build element evidence from inventory (prevents invented locators)
+        evidence_text = ""
+        if inventory_data:
+            evidence_text = self.context_builder.build_element_evidence_section(inventory_data)
+
         # Build scenarios
         scenarios_data = self.scenario_builder.build_scenarios_data(approved_plan)
         scenarios_text = self.scenario_builder.format_scenarios_for_prompt(scenarios_data)
@@ -58,18 +66,26 @@ class PromptComposer(LoggerMixin):
         instructions = self.instruction_builder.build_ir_generation_instructions()
         validation = self.instruction_builder.build_validation_instructions()
         quality = self.instruction_builder.build_quality_guidelines()
+        state_transitions = self.instruction_builder.build_state_transition_instructions()
 
-        # Compose prompt
+        # Compose prompt — evidence section placed before scenarios so the LLM
+        # sees verified locators before it processes the test steps
         prompt_parts = [
             instructions,
             "",
             context_text,
             "",
+        ]
+        if evidence_text:
+            prompt_parts += [evidence_text, ""]
+        prompt_parts += [
             scenarios_text,
             "",
             validation,
             "",
             quality,
+            "",
+            state_transitions,
             "",
             "Generate the complete framework-independent IR as valid JSON now.",
         ]
@@ -79,7 +95,8 @@ class PromptComposer(LoggerMixin):
         self.logger.info(
             "ir_generation_prompt_composed",
             prompt_length=len(prompt),
-            scenario_count=len(scenarios_data)
+            scenario_count=len(scenarios_data),
+            has_evidence=bool(evidence_text),
         )
 
         return prompt

@@ -415,7 +415,17 @@ class HumanReviewService(IService, LoggerMixin):
         if canonical_path:
             canonical = Path(canonical_path)
             if not canonical.is_absolute():
-                canonical = Path(workspace_path) / canonical
+                # Only prepend workspace_path when canonical_path is a short
+                # relative segment (e.g. "contracts/approved-test-plan.json").
+                # When it already contains the full relative path from CWD
+                # (e.g. "storage/runs/<id>/contracts/approved-test-plan.json")
+                # we must NOT join again — that would produce a double path that
+                # never exists, causing the function to fall through to the
+                # legacy path instead of writing the scoped plan.
+                if not canonical.exists():
+                    joined = Path(workspace_path) / canonical
+                    if joined.exists():
+                        canonical = joined
         else:
             canonical = contracts / "approved-test-plan.json"
 

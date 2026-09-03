@@ -469,3 +469,39 @@ class TestTemplateOneTestPerApprovedFlow:
         # A pending scenario never reaches the generated spec → Playwright can
         # never execute it.
         assert "Pending Nine" not in spec
+
+
+class TestResolveCodegenPlanPathJoining:
+    """Regression: resolve_codegen_test_plan_path must not double-join the
+    workspace prefix when canonical_path is already a full relative path."""
+
+    @pytest.mark.asyncio
+    async def test_relative_canonical_path_is_not_double_joined(self, tmp_path: Path):
+        """canonical_path = 'storage/runs/<id>/contracts/approved-test-plan.json'
+        workspace_path  = 'storage/runs/<id>'
+        Previously the function joined workspace / canonical creating a
+        non-existent path, falling through to _legacy_path() and skipping the
+        scoped-plan creation entirely. The fix ensures the existing file is
+        found and the scoped plan is written."""
+        # Use absolute paths so the test is CWD-independent
+        workspace_abs = tmp_path / "storage" / "runs" / "aaaabbbb-1111-2222-3333-444455556666"
+        _write_review(workspace_abs, APPROVED_IDS)
+
+        service = HumanReviewService()
+
+        # Simulate what the workflow does: canonical_path as absolute path
+        canonical_abs = str(workspace_abs / "contracts" / "approved-test-plan.json")
+        workspace_str = str(workspace_abs)
+
+        path = await service.resolve_codegen_test_plan_path(
+            workspace_path=workspace_str,
+            canonical_path=canonical_abs,
+        )
+
+        assert path is not None, "must not return None when scenarios are approved"
+        assert "codegen-scoped-plan.json" in path, (
+            f"expected scoped plan, got {path}"
+        )
+        scoped = json.loads(Path(path).read_text(encoding="utf-8"))
+        ids = [s["metadata"]["id"] for s in scoped["test_plan_data"]["test_scenarios"]]
+        assert sorted(ids) == sorted(APPROVED_IDS)

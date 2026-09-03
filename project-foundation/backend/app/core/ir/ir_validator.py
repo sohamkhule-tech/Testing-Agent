@@ -77,6 +77,7 @@ class IRValidator(LoggerMixin):
         self._validate_dependencies(ir)
         self._validate_common_elements(ir)
         self._validate_common_flows(ir)
+        self._validate_state_transitions(ir)
 
         # Create result
         errors = [i for i in self.issues if i.severity == "error"]
@@ -481,3 +482,84 @@ class IRValidator(LoggerMixin):
                                 message=f"Action references non-existent element: {action.element_id}",
                             )
                         )
+
+    def _validate_state_transitions(self, ir: CodeGenerationIR) -> None:
+        """Validate dynamic/stateful element interactions.
+
+        Detects suspicious patterns where a stateful control is interacted with
+        repeatedly without a state transition being recorded. This is a semantic
+        (non-fatal) check: legitimate repeated interactions on non-stateful
+        elements are never flagged, and warnings do not invalidate the IR.
+
+        A stateful element is one that declares a non-empty ``states`` list.
+        """
+        element_by_id: dict[str, Any] = {}
+        for page in ir.pages:
+            for element in page.elements:
+                element_by_id[element.id] = element
+        for element in ir.common_elements:
+            element_by_id[element.id] = element
+
+        state_ids_by_element: dict[str, set[str]] = {}
+        for eid, element in element_by_id.items():
+            state_ids_by_element[eid] = {s.id for s in (element.states or [])}
+
+        for module in ir.modules:
+            for flow in module.flows:
+                click_counts: dict[str, int] = {}
+                for step in sorted(flow.steps, key=lambda s: s.step_order):
+                    for action in step.actions:
+                        if action.action_type != ActionType.CLICK or not action.element_id:
+                            continue
+                        eid = action.element_id
+                        element = element_by_id.get(eid)
+                        is_stateful = element is not None and bool(getattr(element, "states", None))
+                        prior_clicks = click_counts.get(eid, 0)
+                        click_counts[eid] = prior_clicks + 1
+
+                        if not is_stateful:
+                            continue
+
+                        transition = action.state_transition
+                        if prior_clicks >= 1 and transition is None:
+                            self.issues.append(
+                                IRValidationIssue(
+                                    severity="warning",
+                                    component_type="flow",
+                                    component_id=flow.flow_id,
+                                    issue_type="state_transition_missing",
+                                    message=(
+                                        f"Stateful element '{eid}' is clicked repeatedly in flow "
+                                        f"'{flow.flow_id}' but the later click has no state_transition"
+                                    ),
+                                    suggestion=(
+                                        "Record a state_transition (from_state/to_state) on repeated "
+                                        "clicks of a stateful control so the correct current-state "
+                                        "locator is used."
+                                    ),
+                                )
+                            )
+                            continue
+
+                        if transition is None:
+                            continue
+
+                        # Validate referenced states exist on the element.
+                        known_states = state_ids_by_element.get(eid, set())
+                        for sid in (transition.from_state, transition.to_state):
+                            if sid and known_states and sid not in known_states:
+                                self.issues.append(
+                                    IRValidationIssue(
+                                        severity="warning",
+                                        component_type="flow",
+                                        component_id=flow.flow_id,
+                                        issue_type="unknown_state",
+                                        message=(
+                                            f"state_transition references unknown state '{sid}' on "
+                                            f"element '{eid}'"
+                                        ),
+                                        suggestion=(
+                                            f"Use one of the declared states: {sorted(known_states)}"
+                                        ),
+                                    )
+                                )

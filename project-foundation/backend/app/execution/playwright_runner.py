@@ -241,6 +241,37 @@ class PlaywrightRunner(LoggerMixin):
         if config.trace_on_failure:
             env["TRACE_ON_FAILURE"] = "true"
 
+        # Propagate credentials to Playwright subprocess environment
+        valid_id = getattr(config, "valid_identity", None) or os.environ.get("VALID_IDENTITY")
+        valid_pwd = getattr(config, "valid_password", None) or os.environ.get("VALID_PASSWORD")
+
+        # Fallback to CredentialStore in run workspace if not explicitly set
+        if not (valid_id and valid_pwd):
+            try:
+                curr = project_path
+                workspace_dir = None
+                for _ in range(4):
+                    if (curr / "run_credentials.enc").exists() or (curr / "run_credentials.json").exists():
+                        workspace_dir = curr
+                        break
+                    curr = curr.parent
+
+                if workspace_dir:
+                    from app.services.prompt_builder import get_credential_store
+                    auth = get_credential_store().load(str(workspace_dir))
+                    if auth.username and not valid_id:
+                        valid_id = auth.username
+                    if auth.password and not valid_pwd:
+                        valid_pwd = auth.password
+            except Exception:
+                pass
+
+        if valid_id:
+            env["VALID_IDENTITY"] = valid_id
+            env["VALID_USERNAME"] = valid_id
+        if valid_pwd:
+            env["VALID_PASSWORD"] = valid_pwd
+
         return env
 
     @staticmethod

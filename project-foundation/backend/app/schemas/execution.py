@@ -61,6 +61,8 @@ class ExecutionConfig(BaseModel):
     is_ci: bool = Field(default=False)
     test_file: str | None = Field(default=None)
     grep: str | None = Field(default=None)
+    valid_identity: str | None = Field(default=None)
+    valid_password: str | None = Field(default=None)
 
 
 class TestResult(BaseModel):

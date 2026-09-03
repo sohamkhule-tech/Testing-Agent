@@ -52,6 +52,27 @@ class AssertionType(str, Enum):
     HAS_TITLE = "toHaveTitle"
     HAS_COUNT = "toHaveCount"
     CONTAINS_TEXT = "toContainText"
+    HAS_ATTRIBUTE = "toHaveAttribute"
+
+
+class ElementStateIR(BaseModel):
+    """IR for a single state of a dynamic/stateful UI element.
+
+    A stateful control (e.g. a Show/Hide toggle, an accordion header, a menu
+    button) exposes different locators or observable attributes depending on
+    its current state. Each state is a generic, evidence-based description and
+    never a hardcoded application string.
+    """
+
+    id: str = Field(..., description="State identifier (e.g. hidden, visible, expanded, collapsed)")
+    name: str = Field("", description="Human-readable state name")
+    description: str = Field("", description="State description")
+    locator_strategy: LocatorStrategy | None = Field(None, description="Locator strategy valid only in this state")
+    locator_value: str | None = Field(None, description="Locator value valid only in this state")
+    attributes: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Observable attributes for this state (e.g. accessible_name, input_type, aria_expanded)",
+    )
 
 
 class ElementIR(BaseModel):
@@ -67,6 +88,26 @@ class ElementIR(BaseModel):
     )
     wait_for_visible: bool = Field(True, description="Wait for visibility")
     timeout: int | None = Field(None, description="Custom timeout in ms")
+    states: list[ElementStateIR] = Field(
+        default_factory=list,
+        description="Alternate states for a dynamic/stateful element (e.g. Show/Hide, Expand/Collapse, Open/Close)",
+    )
+
+
+class StateTransitionIR(BaseModel):
+    """IR describing a before→after state change caused by an action.
+
+    Generic and evidence-based: records which state the element is in before the
+    action (``from_state``) and which state it will be in after (``to_state``),
+    plus optional observed/expected attributes. ``evidence`` documents the
+    source of the transition, or "unknown" when it could not be verified.
+    """
+
+    from_state: str | None = Field(None, description="State the element is in before the action")
+    to_state: str | None = Field(None, description="State the element will be in after the action")
+    before: dict[str, Any] = Field(default_factory=dict, description="Observed attributes before the action")
+    after: dict[str, Any] = Field(default_factory=dict, description="Expected attributes after the action")
+    evidence: str | None = Field(None, description="Evidence source for this transition, or 'unknown' if unverified")
 
 
 class ActionIR(BaseModel):
@@ -77,6 +118,10 @@ class ActionIR(BaseModel):
     description: str = Field("", description="Action description")  # Optional — LLM may omit
     wait_before: int | None = Field(None, description="Wait before action (ms)")
     wait_after: int | None = Field(None, description="Wait after action (ms)")
+    state_transition: StateTransitionIR | None = Field(
+        None,
+        description="Expected state transition for this action (for stateful/dynamic controls)",
+    )
 
 
 class AssertionIR(BaseModel):

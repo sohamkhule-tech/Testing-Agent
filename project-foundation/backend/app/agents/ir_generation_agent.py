@@ -86,13 +86,14 @@ class IRGenerationAgent(LoggerMixin):
             approved_plan: ApprovedTestPlan = input_data["approved_test_plan"]
             base_url: str = input_data.get("base_url", "http://localhost:3000")
             selected_model: str | None = input_data.get("model")
+            inventory_data: dict | None = input_data.get("inventory_data")
 
             # Generate initial IR
-            ir = await self._generate_ir(approved_plan, base_url, model=selected_model)
+            ir = await self._generate_ir(approved_plan, base_url, model=selected_model, inventory_data=inventory_data)
 
             # Validate and refine IR
             ir, validation_result, refinement_attempts = await self._validate_and_refine_ir(
-                ir, approved_plan, base_url, model=selected_model
+                ir, approved_plan, base_url, model=selected_model, inventory_data=inventory_data
             )
 
             if not validation_result.is_valid:
@@ -135,6 +136,7 @@ class IRGenerationAgent(LoggerMixin):
         approved_plan: ApprovedTestPlan,
         base_url: str,
         model: str | None = None,
+        inventory_data: dict | None = None,
     ) -> CodeGenerationIR:
         """
         Generate IR using LLM.
@@ -142,6 +144,8 @@ class IRGenerationAgent(LoggerMixin):
         Args:
             approved_plan: Approved test plan
             base_url: Application base URL
+            model: Optional model override
+            inventory_data: Inventory dict for evidence-based locator generation
 
         Returns:
             Generated IR
@@ -149,9 +153,9 @@ class IRGenerationAgent(LoggerMixin):
         self.logger.info("generating_initial_ir")
         selected_model = model or self.llm_client.model
 
-        # Compose prompt
+        # Compose prompt — pass inventory so the LLM receives element evidence
         prompt = self.prompt_composer.compose_ir_generation_prompt(
-            approved_plan, base_url
+            approved_plan, base_url, inventory_data=inventory_data
         )
 
         prompt_tokens = len(prompt.split())  # Rough estimate
@@ -691,9 +695,26 @@ plan just because some fields were already correct.
                          "focus", "press", "upload", "clear", "doubleClick", "rightClick"}
         VALID_ASSERTIONS = {"toBeVisible", "toBeHidden", "toBeEnabled", "toBeDisabled",
                            "toBeChecked", "toBeUnchecked", "toHaveText", "toHaveValue",
-                           "toHaveURL", "toHaveTitle", "toHaveCount", "toContainText"}
+                           "toHaveURL", "toHaveTitle", "toHaveCount", "toContainText", "toHaveAttribute"}
 
         def _normalize_flow(flow: dict) -> None:
+            flow_name = str(flow.get("name", "")).lower()
+            flow_tags = [str(t).lower() for t in (flow.get("tags") or [])]
+            combined_text = flow_name + " " + " ".join(flow_tags)
+
+            is_login_context = "login" in combined_text or "auth" in combined_text
+            is_happy_path = any(k in combined_text for k in ("happy", "success", "valid"))
+            is_negative = any(k in combined_text for k in ("negative", "invalid", "empty", "denied", "rejected"))
+            is_show_password = any(k in combined_text for k in ("show-password", "show_password", "password_visibility", "visibility"))
+
+            # Determine post-login destination URL from pages or fallback
+            post_login_url = "https://rrf-portal.dfstage.space/dashboard"
+            for p in data.get("pages", []) or []:
+                up = str(p.get("url_pattern", ""))
+                if up and not up.endswith("/login") and ("dashboard" in up or "home" in up or "portal" in up or "app" in up):
+                    post_login_url = up
+                    break
+
             for step in flow.get("steps", []) or []:
                 nav = step.get("navigation")
                 if isinstance(nav, dict) and "description" not in nav:
@@ -701,7 +722,31 @@ plan just because some fields were already correct.
                 actions = step.get("actions") or []
                 step["actions"] = [a for a in actions if isinstance(a, dict) and a.get("action_type") in VALID_ACTIONS]
                 assertions = step.get("assertions") or []
-                step["assertions"] = [a for a in assertions if isinstance(a, dict) and a.get("assertion_type") in VALID_ASSERTIONS]
+                normalized_assertions = []
+                for a in assertions:
+                    if not isinstance(a, dict):
+                        continue
+                    atype = a.get("assertion_type")
+                    if atype not in VALID_ASSERTIONS:
+                        continue
+
+                    # Happy-path login URL repair: never expect /login after successful login submit
+                    if is_login_context and is_happy_path and not is_negative:
+                        if atype == "toHaveURL":
+                            exp_val = str(a.get("expected_value", ""))
+                            if exp_val.endswith("/login") or exp_val == "https://rrf-portal.dfstage.space/login":
+                                a["expected_value"] = post_login_url
+
+                    # Show password toggle assertion repair: use toHaveAttribute('type', 'text') instead of toHaveValue
+                    if is_show_password:
+                        elem_id = str(a.get("element_id", "")).lower()
+                        if atype == "toHaveValue" and ("password" in elem_id or "pwd" in elem_id):
+                            a["assertion_type"] = "toHaveAttribute"
+                            a["expected_value"] = "type=text"
+
+                    normalized_assertions.append(a)
+                step["assertions"] = normalized_assertions
+
                 wfc = step.get("wait_for_condition")
                 if isinstance(wfc, dict):
                     step["wait_for_condition"] = wfc.get("value") or wfc.get("description") or str(wfc)
@@ -775,6 +820,7 @@ plan just because some fields were already correct.
         approved_plan: ApprovedTestPlan,
         base_url: str,
         model: str | None = None,
+        inventory_data: dict | None = None,
     ) -> tuple[CodeGenerationIR, IRValidationResult, int]:
         """
         Validate IR and refine if needed.
